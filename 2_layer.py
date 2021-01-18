@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 # 4, 6, 14
-np.random.seed(10)
+# np.random.seed(10)
 
 WEIGHTS_DIST = 'first'
 
@@ -13,6 +13,21 @@ class TwoLayerNet:
   def __init__(self, w1, w2):
     self.w1 = w1
     self.w2 = w2
+
+  def forward(self, x):
+    self.a1 = sigmoid(self.w1 @ x)
+    self.a2 = self.w2 @ self.a1
+    return self.a2
+
+  def backward(self, x, y, lr):
+    error = self.a2 - y
+
+    dw2 = error @ self.a1.T
+    dw1 = self.w2.T @ error * self.a1 * (1 - self.a1) @ x.T
+
+    self.w1 -= lr * dw1 / len(x)
+    self.w2 -= lr * dw2 / len(x)
+
 
 def diag(a):
   return np.array([[a[0], a[1]], [a[1], a[2]]])
@@ -33,7 +48,17 @@ def forward(x, w):
   return out
 
 def loss(y_hat, Y):
-  return sum(((y_hat - Y) ** 2).flatten())
+  return sum(((y_hat - Y) ** 2).flatten()) / 2
+
+def train(epochs, m, X, Y, lr):
+  for _ in range(epochs):
+    y_hat = m.forward(X)
+
+    _loss = loss(y_hat, Y)
+
+    m.backward(X, Y, lr)
+
+    print(_loss)
 
 def calc_loss(i, j, fixed, Y):
   y_hat = forward(X, form_weights(i, j, fixed, WEIGHTS_DIST))
@@ -68,6 +93,8 @@ if __name__ == "__main__":
   rand_init = np.random.normal(0, 1, 2)
   model = TwoLayerNet(*form_weights(*rand_init, fixed, WEIGHTS_DIST))
 
+  train(10, model, X, Y, 0.01)
+
   # Fixed weights set to same as Y, change to random to achieve non-convexity
   # plot(fixed, Y)
-  plot_3d(fixed, Y)
+  # plot_3d(fixed, Y)

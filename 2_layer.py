@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
+# 6
 np.random.seed(6)
 
 WEIGHTS_DIST = 'first'
@@ -44,6 +45,9 @@ class TwoLayerNet:
 def diag(a):
   return np.array([[a[0], a[1]], [a[1], a[2]]])
 
+'''
+  Distribute parameters i and j into a pair of 2x2 matrices, to form the weights.
+'''
 def form_weights(i, j, fixed, dist='first'):
   weights = None
   if dist == 'first':
@@ -86,12 +90,15 @@ def create_landscape(axis, fixed, Y):
 
 axis = np.arange(-AXIS_SIZE, AXIS_SIZE, AXIS_SIZE/100)
 
+'''
+  Plot 2D contours of the loss landscape
+'''
 def plot(fixed, Y, paths=None):
   plt.contour(axis, axis, create_landscape(axis, fixed, Y), levels=20, cmap=cm.terrain_r)
   if paths:
     for path in paths:
       params = list(zip(*path))
-      xs, ys = params[1], params[0]
+      xs, ys = list(map(lambda x: -x, params[1])), params[0]
       plt.plot(xs, ys, color='red')
       plt.scatter(xs[-1], ys[-1], color='red', marker='o')
 
@@ -99,6 +106,9 @@ def plot(fixed, Y, paths=None):
   plt.ylim([-AXIS_SIZE, AXIS_SIZE])
   plt.show()
 
+'''
+  Plot 3D contours of the loss landscape
+'''
 def plot_3d(fixed, Y, paths=None):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
@@ -116,6 +126,10 @@ def plot_3d(fixed, Y, paths=None):
   plt.ylim([-AXIS_SIZE, AXIS_SIZE])
   plt.show()
 
+
+'''
+  Plot chart of loss over epochs
+'''
 def plot_losses(losses, epochs):
   epoch_axis = np.arange(1, epochs + 1)
   plt.plot(epoch_axis, losses)
@@ -128,7 +142,7 @@ if __name__ == "__main__":
   X = np.random.normal(0, 1, (2, 10))
   Y = forward(X, form_weights(rand[0], rand[1], fixed))
 
-  epochs = 20000
+  epochs = 10000
   lr = 0.1
 
   num_paths = 3

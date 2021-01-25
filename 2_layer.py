@@ -99,11 +99,11 @@ axis = np.arange(-AXIS_SIZE, AXIS_SIZE, AXIS_SIZE/100)
   Plot 2D contours of the loss landscape
 '''
 def plot(fixed, Y, paths=None):
-  plt.contour(axis, axis, create_landscape(axis, fixed, Y), levels=20, cmap=cm.terrain_r)
+  plt.contour(axis, axis, create_landscape(axis, fixed, Y), levels=20, cmap=cm.terrain)
   if paths:
     for path in paths:
       params = list(zip(*path))
-      xs, ys = list(map(lambda x: -x, params[1])), params[0]
+      xs, ys = params[0], params[1]
       plt.plot(xs, ys, color='red')
       plt.scatter(xs[-1], ys[-1], color='red', marker='o')
 
@@ -163,5 +163,5 @@ if __name__ == "__main__":
     sgd_paths.append(train(epochs, model, X, Y, lr)[0])
 
   # plot_losses(losses, epochs)
-  plot(fixed, Y, sgd_paths)
+  plot(model_fixed, Y, sgd_paths)
   plot_3d(model_fixed, Y, sgd_paths)

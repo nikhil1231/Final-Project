@@ -55,6 +55,11 @@ def form_weights(i, j, fixed, dist='first'):
   elif dist == 'second':
     # This does not result in non-convexity
     weights = [fixed[0], fixed[1], fixed[2]], [i, j, fixed[3]]
+  elif dist == 'equal':
+    # weights = [i, fixed[0], fixed[1]], [j, fixed[2], fixed[3]]
+    weights = [fixed[0], i, fixed[1]], [fixed[2], j, fixed[3]]
+  elif dist == 'rotational':
+    weights = [0, i, 0], [0, j, 0]
 
   return list(map(lambda x: diag(x), weights))
 

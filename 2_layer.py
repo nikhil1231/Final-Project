@@ -103,10 +103,10 @@ def train(epochs, m, X, Y, lr):
     _loss = loss(y_hat, Y)
     losses.append(_loss)
 
-    m.backward(X, Y, lr)
-
     pos = parameter_positions[WEIGHTS_DIST]
     sgd_path.append((m.w[pos[0][0]][pos[0][1], [pos[0][2]]], m.w[pos[1][0]][pos[1][1], [pos[1][2]]], _loss))
+
+    m.backward(X, Y, lr)
 
   return sgd_path, losses
 

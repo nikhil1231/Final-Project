@@ -19,23 +19,24 @@ sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 inv_sigmoid = lambda y: np.log(y / (1.0 - y))
 
 class TwoLayerNet:
-  def __init__(self, w0, w1, w2=np.array([None])):
-    self.w = [w0, w1, w2]
+  def __init__(self, w):
+    self.w = w
+    self.is_3_layer = len(w) == 3
 
   def forward(self, x):
-    self.a1 = sigmoid(self.w[0] @ x)
-    self.a2 = self.w[1] @ self.a1
-    if self.w[2].any() != None:
-      self.a3 = self.w[2] @ sigmoid(self.a2)
+    if self.is_3_layer:
+      self.a1, self.a2, self.a3 = forward(x, self.w)
       return self.a3
-    return self.a2
+    else:
+      self.a1, self.a2 = forward(x, self.w)
+      return self.a2
 
   def backward(self, x, y, lr):
 
     dw = [None] * 2
 
     # w[2] will always be fixed, so we can "remove" it before calculating grads
-    if self.w[2].any() != None:
+    if self.is_3_layer:
       inv = np.linalg.inv(self.w[2])
       y = inv_sigmoid(inv @ y)
 
@@ -85,11 +86,12 @@ def form_weights(i, j, fixed):
   return list(map(lambda x: diag(x), weights))
 
 def forward(x, w):
-  out = w[0] @ x
-  out = w[1] @ sigmoid(out)
+  a1 = sigmoid(w[0] @ x)
+  a2 = w[1] @ a1
   if len(w) > 2:
-    out = w[2] @ sigmoid(out)
-  return out
+    a3 = w[2] @ sigmoid(a2)
+    return a1, a2, a3
+  return a1, a2
 
 def loss(y_hat, Y):
   return sum(((y_hat - Y) ** 2).flatten()) / 2
@@ -111,7 +113,7 @@ def train(epochs, m, X, Y, lr):
   return sgd_path, losses
 
 def calc_loss(i, j, fixed, Y):
-  y_hat = forward(X, form_weights(i, j, fixed))
+  y_hat = forward(X, form_weights(i, j, fixed))[-1]
   return loss(y_hat, Y)
 
 def create_landscape(axis, fixed, Y):
@@ -169,7 +171,7 @@ if __name__ == "__main__":
   fixed = rand[2:]
 
   X = np.random.normal(0, 1, (2, 10))
-  Y = forward(X, form_weights(rand[0], rand[1], fixed))
+  Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
   # fixed batch vs dist, range of values, orthoganol matices, adding another layer to 'equal' dist.
   epochs = 50000
@@ -183,7 +185,7 @@ if __name__ == "__main__":
 
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE
-    model = TwoLayerNet(*form_weights(*rand_init, model_fixed))
+    model = TwoLayerNet(form_weights(*rand_init, model_fixed))
 
     sgd_paths.append(train(epochs, model, X, Y, lr)[0])
 

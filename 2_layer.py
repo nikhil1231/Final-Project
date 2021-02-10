@@ -2,12 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-# 6, 8
-# np.random.seed(1)
+# 4
+np.random.seed(4)
 
-WEIGHTS_DIST = 'equal'
+WEIGHTS_DIST = 'first'
 MODEL_FIXED_SAME = True
-AXIS_SIZE = 15
+RAND_SD = 3
+RAND_DIST = 'uniform'
+AXIS_SIZE = 4
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
@@ -166,28 +168,35 @@ def plot_losses(losses, epochs):
   plt.plot(epoch_axis, losses)
   plt.show()
 
+def get_rand(shape):
+  if RAND_DIST == 'normal':
+    return np.random.normal(0, RAND_SD, shape)
+  elif RAND_DIST == 'uniform':
+    return np.random.uniform(-RAND_SD, high=RAND_SD, size=shape)
+
 if __name__ == "__main__":
-  rand = np.random.normal(0, 1, 12)
+  rand = get_rand(12)
   fixed = rand[2:]
 
-  X = np.random.normal(0, 1, (2, 10))
+  X = get_rand((2, 10))
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
   # fixed batch vs dist, range of values, orthoganol matices, adding another layer to 'equal' dist.
-  epochs = 50000
+  epochs = 10000
   lr = 0.1
 
   num_paths = 3
   sgd_paths = []
 
   # Model fixed weights set to same as Y, change to random to achieve non-convexity
-  model_fixed = fixed if MODEL_FIXED_SAME else np.random.normal(0, 1, 12)
+  model_fixed = fixed if MODEL_FIXED_SAME else get_rand(12)
 
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE
     model = TwoLayerNet(form_weights(*rand_init, model_fixed))
 
-    sgd_paths.append(train(epochs, model, X, Y, lr)[0])
+    path = train(epochs, model, X, Y, lr)[0]
+    sgd_paths.append(path)
 
   # plot_losses(losses, epochs)
   # plot(model_fixed, Y, sgd_paths)

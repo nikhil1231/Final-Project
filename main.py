@@ -142,7 +142,7 @@ def plot(fixed, Y, paths=None):
 '''
   Plot 3D contours of the loss landscape
 '''
-def plot_3d(fixed, Y, paths=None):
+def plot_3d(i, j, fixed, Y, paths=None):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
@@ -150,6 +150,7 @@ def plot_3d(fixed, Y, paths=None):
   axis_x, axis_y = np.meshgrid(axis, axis)
 
   ax.plot_surface(axis_x, axis_y, Z, cmap=cm.terrain, linewidth=0, alpha=0.7)
+  ax.scatter(i, j, 0, marker='x', s=150, color='black')
   if paths:
     for path in paths:
       ax.plot(*zip(*path), color='red')
@@ -200,5 +201,5 @@ if __name__ == "__main__":
 
   # plot_losses(losses, epochs)
   # plot(model_fixed, Y, sgd_paths)
-  # plot_3d(model_fixed, Y)
-  plot_3d(model_fixed, Y, sgd_paths)
+  # plot_3d(rand[0], rand[1], model_fixed, Y)
+  plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths)

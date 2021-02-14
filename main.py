@@ -5,7 +5,7 @@ from matplotlib import cm
 # 4
 np.random.seed(4)
 
-WEIGHTS_DIST = 'first'
+WEIGHTS_DIST = 'skew'
 MODEL_FIXED_SAME = True
 RAND_SD = 3
 RAND_DIST = 'uniform'
@@ -15,6 +15,7 @@ parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
   'second': [(1, 0, 0), (1, 0, 1)],
   'equal': [(0, 0, 1), (1, 0, 1)],
+  'skew': [(0, 0, 1), (1, 0, 1)],
 }
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
@@ -57,9 +58,15 @@ class TwoLayerNet:
         if _pos[1:3] == (0, 1):
           self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0] / len(x)
 
+          if WEIGHTS_DIST == 'skew':
+            self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
+
           diff = self.w[_pos[0]][0, 1] - self.w[_pos[0]][1, 0]
           self.w[_pos[0]][0, 1] -= diff / 2
           self.w[_pos[0]][1, 0] += diff / 2
+
+          if WEIGHTS_DIST == 'skew':
+            self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
 
 
 def diag(a):
@@ -67,6 +74,9 @@ def diag(a):
 
 def forward_diag(a):
   return np.array([[a[0], a[1]], [a[2], a[0]]])
+
+def skew_symmetric(i):
+  return np.array([[0, i], [-i, 0]])
 
 '''
   Distribute parameters i and j into 2x2 matrices, to form the weights.
@@ -77,6 +87,8 @@ def form_weights(i, j, fixed):
   if WEIGHTS_DIST == 'rotational':
     weights = [np.cos(i), -np.sin(i), np.sin(i)], [np.cos(j), -np.sin(j), np.sin(j)]
     return list(map(lambda x: forward_diag(x), weights))
+  elif WEIGHTS_DIST == 'skew':
+    return [skew_symmetric(i), skew_symmetric(j), diag([fixed[6], fixed[7], fixed[8]])]
   else:
     pos = parameter_positions[WEIGHTS_DIST]
     weights[pos[0][0]][pos[0][1] + pos[0][2]] = i

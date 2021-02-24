@@ -2,19 +2,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-# 4
-np.random.seed(4)
+# 4, 6 for good rotational, 7 for uphill rotational
+np.random.seed(6)
 
-WEIGHTS_DIST = 'skew'
+WEIGHTS_DIST = 'rotational'
 MODEL_FIXED_SAME = True
-RAND_SD = 3
+RAND_SD = 2
 RAND_DIST = 'uniform'
-AXIS_SIZE = 4
+AXIS_SIZE = 5
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
   'second': [(1, 0, 0), (1, 0, 1)],
   'equal': [(0, 0, 1), (1, 0, 1)],
+  'rotational': [(0, 0, 0), (1, 0, 0)],
   'skew': [(0, 0, 1), (1, 0, 1)],
 }
 
@@ -49,25 +50,73 @@ class TwoLayerNet:
     dw[0] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ x.T
 
     # Only update weights for non-fixed parameters
-    if WEIGHTS_DIST != 'rotational':
-      pos = parameter_positions[WEIGHTS_DIST]
-      for _pos in pos:
-        self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]] / len(x)
+    pos = parameter_positions[WEIGHTS_DIST]
+    for _pos in pos:
+      self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]] / len(x)
 
-        # If the same parameter appears twice on the diagonal, fix them to be the same
-        if _pos[1:3] == (0, 1):
-          self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0] / len(x)
+      # If the same parameter appears twice on the diagonal, fix them to be the same
+      if _pos[1:3] == (0, 1):
+        self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0] / len(x)
 
-          if WEIGHTS_DIST == 'skew':
-            self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
+        if WEIGHTS_DIST == 'skew':
+          self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
 
-          diff = self.w[_pos[0]][0, 1] - self.w[_pos[0]][1, 0]
-          self.w[_pos[0]][0, 1] -= diff / 2
-          self.w[_pos[0]][1, 0] += diff / 2
+        diff = self.w[_pos[0]][0, 1] - self.w[_pos[0]][1, 0]
+        self.w[_pos[0]][0, 1] -= diff / 2
+        self.w[_pos[0]][1, 0] += diff / 2
 
-          if WEIGHTS_DIST == 'skew':
-            self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
+        if WEIGHTS_DIST == 'skew':
+          self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
 
+class RotationalNet:
+  def __init__(self, i, j):
+    self.i = i
+    self.j = j
+    self.w = self.form_shell_weights(i, j)
+    self._w = form_weights(i, j, [0]*6)
+
+  def form_shell_weights(self, i, j):
+    return [
+      np.array([
+        [i, 0.],
+        [0., 0.]
+      ]),
+      np.array([
+        [j, 0.],
+        [0., 0.]
+      ])
+    ]
+
+  def forward(self, x):
+    self.a1 = sigmoid(self._w[0] @ x)
+    self.a2 = self._w[1] @ self.a1
+    return self.a2
+
+  def backward(self, x, y, lr):
+    dw = [None] * 2
+
+    error = self.a2 - y
+
+    # Derivative of rotational matrix
+    da = lambda a: np.array([
+      [-np.sin(a), -np.cos(a)],
+      [np.cos(a), -np.sin(a)]
+    ])
+
+    daj = da(self.j) @ self.a1
+    dw[1] = error @ daj.T
+
+    dai = da(self.i) @ x
+    dw[0] = self._w[1].T @ error * self.a1 * (1 - self.a1) @ dai.T
+
+    avg_dw1 = np.mean(dw[1].flatten())
+    avg_dw0 = np.mean(dw[0].flatten())
+
+    self.j -= avg_dw1 * lr / len(x)
+    self.i -= avg_dw0 * lr / len(x)
+
+    self.w = self.form_shell_weights(self.i, self.j)
+    self._w = form_weights(self.i, self.j, [0]*6)
 
 def diag(a):
   return np.array([[a[0], a[1]], [a[1], a[2]]])
@@ -170,6 +219,9 @@ def plot_3d(i, j, fixed, Y, paths=None):
 
   plt.xlim([-AXIS_SIZE, AXIS_SIZE])
   plt.ylim([-AXIS_SIZE, AXIS_SIZE])
+  plt.xlabel('i')
+  plt.ylabel('j')
+  ax.set_zlabel('Loss')
   plt.show()
 
 
@@ -194,7 +246,6 @@ if __name__ == "__main__":
   X = get_rand((2, 10))
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
-  # fixed batch vs dist, range of values, orthoganol matices, adding another layer to 'equal' dist.
   epochs = 10000
   lr = 0.1
 
@@ -206,9 +257,13 @@ if __name__ == "__main__":
 
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE
-    model = TwoLayerNet(form_weights(*rand_init, model_fixed))
 
-    path = train(epochs, model, X, Y, lr)[0]
+    if WEIGHTS_DIST == 'rotational':
+      model = RotationalNet(*rand_init)
+    else:
+      model = TwoLayerNet(form_weights(*rand_init, model_fixed))
+
+    path, losses = train(epochs, model, X, Y, lr)
     sgd_paths.append(path)
 
   # plot_losses(losses, epochs)

@@ -104,16 +104,16 @@ class RotationalNet:
     ])
 
     daj = da(self.j) @ self.a1
-    dw[1] = error @ daj.T
+    dw[1] = error * daj
 
     dai = da(self.i) @ x
     dw[0] = self._w[1].T @ error * self.a1 * (1 - self.a1) @ dai.T
 
-    avg_dw1 = np.mean(dw[1].flatten())
-    avg_dw0 = np.mean(dw[0].flatten())
+    avg_dw1 = np.sum(dw[1].flatten()) / len(x)
+    avg_dw0 = np.sum(dw[0].flatten()) / len(x)
 
-    self.j -= avg_dw1 * lr / len(x)
-    self.i -= avg_dw0 * lr / len(x)
+    self.j -= avg_dw1 * lr
+    self.i -= avg_dw0 * lr
 
     self.w = self.form_shell_weights(self.i, self.j)
     self._w = form_weights(self.i, self.j, [0]*6)

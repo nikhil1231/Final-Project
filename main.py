@@ -18,6 +18,8 @@ AXIS_SIZE = 5
 ADD_NOISE = False
 NOISE_STRENGTH = 5
 
+ANNEALING_STRENGTH = 1e5
+
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
   'second': [(1, 0, 0), (1, 0, 1)],
@@ -177,10 +179,13 @@ def forward(x, w):
 def loss(y_hat, Y):
   return sum(((y_hat - Y) ** 2).flatten()) / 2
 
+def anneal(lr, epoch):
+  return lr * np.exp(-epoch/ANNEALING_STRENGTH)
+
 def train(epochs, m, X, Y, lr):
   sgd_path = []
   losses = []
-  for _ in range(epochs):
+  for epoch in range(epochs):
     xs = np.split(X, NUM_SAMPLES / BATCH_SIZE, axis=1)
     ys = np.split(Y, NUM_SAMPLES / BATCH_SIZE, axis=1)
 
@@ -189,6 +194,8 @@ def train(epochs, m, X, Y, lr):
     np.random.shuffle(zipped)
 
     _loss = 0
+
+    lr = anneal(lr, epoch)
 
     for x, y in zipped:
       y_hat = m.forward(x)
@@ -275,7 +282,7 @@ if __name__ == "__main__":
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
   epochs = 1000
-  lr = 0.01 if WEIGHTS_DIST == 'rotational' else 0.1
+  lr = 0.1 if WEIGHTS_DIST == 'rotational' else 0.3
 
   num_paths = 3
   sgd_paths = []

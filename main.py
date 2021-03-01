@@ -5,12 +5,17 @@ from matplotlib import cm
 # 4, 6 for good rotational, 7 for uphill rotational
 np.random.seed(6)
 
+NUM_SAMPLES = 100
+BATCH_SIZE = 10
+
 WEIGHTS_DIST = 'rotational'
 MODEL_FIXED_SAME = True
+
 RAND_SD = 2
 RAND_DIST = 'uniform'
 AXIS_SIZE = 5
-ADD_NOISE = True
+
+ADD_NOISE = False
 NOISE_STRENGTH = 5
 
 parameter_positions = {
@@ -176,15 +181,25 @@ def train(epochs, m, X, Y, lr):
   sgd_path = []
   losses = []
   for _ in range(epochs):
-    y_hat = m.forward(X)
+    xs = np.split(X, NUM_SAMPLES / BATCH_SIZE, axis=1)
+    ys = np.split(Y, NUM_SAMPLES / BATCH_SIZE, axis=1)
 
-    _loss = loss(y_hat, Y)
+    zipped = list(zip(xs, ys))
+
+    np.random.shuffle(zipped)
+
+    _loss = 0
+
+    for x, y in zipped:
+      y_hat = m.forward(x)
+
+      _loss += loss(y_hat, y)
+      m.backward(x, y, lr)
+
     losses.append(_loss)
 
     pos = parameter_positions[WEIGHTS_DIST]
     sgd_path.append((m.w[pos[0][0]][pos[0][1], [pos[0][2]]], m.w[pos[1][0]][pos[1][1], [pos[1][2]]], _loss))
-
-    m.backward(X, Y, lr)
 
   return sgd_path, losses
 
@@ -256,11 +271,11 @@ if __name__ == "__main__":
   rand = get_rand(12)
   fixed = rand[2:]
 
-  X = get_rand((2, 10))
+  X = get_rand((2, NUM_SAMPLES))
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
-  epochs = 10000
-  lr = 0.1
+  epochs = 1000
+  lr = 0.01 if WEIGHTS_DIST == 'rotational' else 0.1
 
   num_paths = 3
   sgd_paths = []

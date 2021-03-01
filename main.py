@@ -8,7 +8,7 @@ np.random.seed(6)
 NUM_SAMPLES = 100
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'rotational'
+WEIGHTS_DIST = 'first'
 MODEL_FIXED_SAME = True
 
 RAND_SD = 2
@@ -17,6 +17,9 @@ AXIS_SIZE = 5
 
 ADD_NOISE = False
 NOISE_STRENGTH = 5
+
+ADD_ANNEALING = False
+ANNEALING_STRENGTH = 100
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
@@ -177,10 +180,13 @@ def forward(x, w):
 def loss(y_hat, Y):
   return sum(((y_hat - Y) ** 2).flatten()) / 2
 
+def anneal(lr, epoch):
+  return lr * np.exp(-epoch/ANNEALING_STRENGTH)
+
 def train(epochs, m, X, Y, lr):
   sgd_path = []
   losses = []
-  for _ in range(epochs):
+  for epoch in range(epochs):
     xs = np.split(X, NUM_SAMPLES / BATCH_SIZE, axis=1)
     ys = np.split(Y, NUM_SAMPLES / BATCH_SIZE, axis=1)
 
@@ -194,7 +200,7 @@ def train(epochs, m, X, Y, lr):
       y_hat = m.forward(x)
 
       _loss += loss(y_hat, y)
-      m.backward(x, y, lr)
+      m.backward(x, y, anneal(lr, epoch) if ADD_ANNEALING else lr)
 
     losses.append(_loss)
 
@@ -275,7 +281,7 @@ if __name__ == "__main__":
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
   epochs = 1000
-  lr = 0.01 if WEIGHTS_DIST == 'rotational' else 0.1
+  lr = 0.1 if WEIGHTS_DIST == 'rotational' else 1
 
   num_paths = 3
   sgd_paths = []

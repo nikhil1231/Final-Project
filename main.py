@@ -10,6 +10,8 @@ MODEL_FIXED_SAME = True
 RAND_SD = 2
 RAND_DIST = 'uniform'
 AXIS_SIZE = 5
+ADD_NOISE = True
+NOISE_STRENGTH = 5
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
@@ -38,6 +40,9 @@ class TwoLayerNet:
   def backward(self, x, y, lr):
 
     dw = [None] * 2
+
+    if ADD_NOISE:
+      x = add_noise(x)
 
     # w[2] will always be fixed, so we can "remove" it before calculating grads
     if self.is_3_layer:
@@ -95,6 +100,9 @@ class RotationalNet:
   def backward(self, x, y, lr):
     dw = [None] * 2
 
+    if ADD_NOISE:
+      x = add_noise(x)
+
     error = self.a2 - y
 
     # Derivative of rotational matrix
@@ -148,12 +156,17 @@ def form_weights(i, j, fixed):
 
   return list(map(lambda x: diag(x), weights))
 
+def add_noise(m):
+  return m + np.random.normal(0, NOISE_STRENGTH, np.shape(m))
+
 def forward(x, w):
   a1 = sigmoid(w[0] @ x)
   a2 = w[1] @ a1
   if len(w) > 2:
     a3 = w[2] @ sigmoid(a2)
+    # a3 = add_noise(a3)
     return a1, a2, a3
+  # a2 = add_noise(a2)
   return a1, a2
 
 def loss(y_hat, Y):

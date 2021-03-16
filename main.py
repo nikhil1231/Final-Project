@@ -3,17 +3,17 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 # 4, 6 for good rotational, 7 for uphill rotational
-np.random.seed(6)
+# np.random.seed(6)
 
 NUM_SAMPLES = 100
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'rotational'
+WEIGHTS_DIST = 'monomial'
 MODEL_FIXED_SAME = True
 
-RAND_SD = 2
+RAND_SD = 1
 RAND_DIST = 'uniform'
-AXIS_SIZE = 15
+AXIS_SIZE = 5
 
 ADD_NOISE = False
 NOISE_STRENGTH = 5
@@ -28,6 +28,8 @@ parameter_positions = {
   'rotational': [(0, 0, 0), (1, 0, 0)],
   'skew': [(0, 0, 1), (1, 0, 1)],
   'resnet': [(0, 0, 0), (0, 0, 1)],
+  'monomial': [(0, 0, 0), (1, 0, 0)],
+  'chebyshev': [(0, 0, 0), (1, 0, 0)],
 }
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
@@ -82,7 +84,7 @@ class TwoLayerNet:
         if WEIGHTS_DIST == 'skew':
           self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
 
-class RotationalNet:
+class FunctionalNet:
   def __init__(self, i, j):
     self.i = i
     self.j = j
@@ -105,6 +107,13 @@ class RotationalNet:
     self.a1 = sigmoid(self._w[0] @ x)
     self.a2 = self._w[1] @ self.a1
     return self.a2
+
+  def backward(self, x, y, lr):
+    raise Exception("ERROR: Backward function not implemented.")
+
+class RotationalNet(FunctionalNet):
+  def __init__(self, i, j):
+    super().__init__(i, j)
 
   def backward(self, x, y, lr):
     dw = [None] * 2
@@ -134,6 +143,34 @@ class RotationalNet:
 
     self.w = self.form_shell_weights(self.i, self.j)
     self._w = form_weights(self.i, self.j, [0]*6)
+
+class MonomialNet(FunctionalNet):
+  def __init__(self, i, j):
+    super().__init__(i, j)
+
+  def backward(self, x, y, lr):
+    pass
+
+  @staticmethod
+  def form_weights(i, j):
+    # l = lambda a, b, c: np.array([1, a, b**2, c**3])
+    l = lambda a, b, c, d: np.array([a, b**2, c**3, d**4])
+    return l(i, i, i, i), l(j, j, j, j)
+
+class ChebyshevNet(FunctionalNet):
+  def __init__(self, i, j):
+    super().__init__(i, j)
+
+  def backward(self, x, y, lr):
+    pass
+
+  @staticmethod
+  def form_weights(i, j):
+    l1 = lambda a, b, c: np.array([1, a, 2*(b**2) - 1, 4*(c**3) - 3*c])
+    l2 = lambda a, b, c, d: np.array([a, 2*(b**2) - 1, 4*(c**3) - 3*c, 8*(d**4) - 8*(d**2) + 1])
+    # return l(i, i, i), l(j, j, j)
+    return l1(i, i, i), l2(j, j, j, j)
+    # return [i, j, j, 0], [i, j, j, 0]
 
 class ResNet:
   def __init__(self, w):
@@ -202,6 +239,9 @@ def forward_diag(a):
 def skew_symmetric(i):
   return np.array([[0, i], [-i, 0]])
 
+def matrix(a):
+  return np.array([[a[0], a[1]], [a[2], a[3]]])
+
 '''
   Distribute parameters i and j into 2x2 matrices, to form the weights.
 '''
@@ -211,6 +251,15 @@ def form_weights(i, j, fixed):
   if WEIGHTS_DIST == 'rotational':
     weights = [np.cos(i), -np.sin(i), np.sin(i)], [np.cos(j), -np.sin(j), np.sin(j)]
     return list(map(lambda x: forward_diag(x), weights))
+
+  elif WEIGHTS_DIST == 'monomial':
+    weights = MonomialNet.form_weights(i, j)
+    return list(map(lambda x: matrix(x), weights))
+
+  elif WEIGHTS_DIST == 'chebyshev':
+    weights = ChebyshevNet.form_weights(i, j)
+    return list(map(lambda x: matrix(x), weights))
+
   elif WEIGHTS_DIST == 'skew':
     return [skew_symmetric(i), skew_symmetric(j), diag([fixed[6], fixed[7], fixed[8]])]
   else:
@@ -233,9 +282,7 @@ def forward(x, w, net=None):
   a2 = w[1] @ a1
   if len(w) > 2:
     a3 = w[2] @ sigmoid(a2)
-    # a3 = add_noise(a3)
     return a1, a2, a3
-  # a2 = add_noise(a2)
   return a1, a2
 
 def loss(y_hat, Y):
@@ -357,6 +404,10 @@ if __name__ == "__main__":
 
     if WEIGHTS_DIST == 'rotational':
       model = RotationalNet(*rand_init)
+    elif WEIGHTS_DIST == 'monomial':
+      model = MonomialNet(*rand_init)
+    elif WEIGHTS_DIST == 'chebyshev':
+      model = ChebyshevNet(*rand_init)
     else:
       if WEIGHTS_DIST == 'resnet':
         Net = ResNet
@@ -370,5 +421,5 @@ if __name__ == "__main__":
 
   # plot_losses(losses, epochs)
   # plot(model_fixed, Y, sgd_paths)
-  # plot_3d(rand[0], rand[1], model_fixed, Y, net=Net)
-  plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths, net=Net)
+  plot_3d(rand[0], rand[1], model_fixed, Y, net=Net)
+  # plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths, net=Net)

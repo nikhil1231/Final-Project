@@ -3,17 +3,28 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 # 4, 6 for good rotational, 7 for uphill rotational
-# np.random.seed(6)
+np.random.seed(9)
 
-NUM_SAMPLES = 100
+NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
 MODEL_FIXED_SAME = True
 
-RAND_SD = 0.9
+dimensions = {
+  'first': [3, 15],
+  'second': [3, 15],
+  'equal': [3, 15],
+  'rotational': [3, 5],
+  'skew': [3, 10],
+  'resnet': [3, 15],
+  'monomial': [0.5, 0.5],
+  'chebyshev': [0.9, 0.9],
+}
+
+RAND_SD = dimensions[WEIGHTS_DIST][0]
 RAND_DIST = 'uniform'
-AXIS_SIZE = 0.9
+AXIS_SIZE = dimensions[WEIGHTS_DIST][1]
 ADD_NOISE = False
 NOISE_STRENGTH = 5
 
@@ -89,6 +100,7 @@ class FunctionalNet:
     self.j = j
     self.w = self.form_shell_weights(i, j)
     self._w = form_weights(i, j, [0]*6)
+    self.derivs = None
 
   def form_shell_weights(self, i, j):
     return [
@@ -108,13 +120,10 @@ class FunctionalNet:
     return self.a2
 
   def backward(self, x, y, lr):
-    raise Exception("ERROR: Backward function not implemented.")
+    if not self.derivs:
+      print("ERROR: Derivatives not defined")
+      return
 
-class RotationalNet(FunctionalNet):
-  def __init__(self, i, j):
-    super().__init__(i, j)
-
-  def backward(self, x, y, lr):
     dw = [None] * 2
 
     if ADD_NOISE:
@@ -123,15 +132,13 @@ class RotationalNet(FunctionalNet):
     error = self.a2 - y
 
     # Derivative of rotational matrix
-    da = lambda a: np.array([
-      [-np.sin(a), -np.cos(a)],
-      [np.cos(a), -np.sin(a)]
-    ])
+    da1 = self.derivs[0]
+    da2 = self.derivs[1]
 
-    daj = da(self.j) @ self.a1
+    daj = da2(self.j) @ self.a1
     dw[1] = error * daj
 
-    dai = da(self.i) @ x
+    dai = da1(self.i) @ x
     dw[0] = self._w[1].T @ error * self.a1 * (1 - self.a1) @ dai.T
 
     avg_dw1 = np.sum(dw[1].flatten()) / len(x)
@@ -140,8 +147,25 @@ class RotationalNet(FunctionalNet):
     self.j -= avg_dw1 * lr
     self.i -= avg_dw0 * lr
 
+    self.i = min(max(self.i, -AXIS_SIZE), AXIS_SIZE)
+    self.j = min(max(self.j, -AXIS_SIZE), AXIS_SIZE)
+
     self.w = self.form_shell_weights(self.i, self.j)
     self._w = form_weights(self.i, self.j, [0]*6)
+
+class RotationalNet(FunctionalNet):
+  def __init__(self, i, j):
+    super().__init__(i, j)
+    self.derivs = [
+      lambda a: np.array([
+        [-np.sin(a), -np.cos(a)],
+        [np.cos(a), -np.sin(a)]
+      ]),
+      lambda a: np.array([
+        [-np.sin(a), -np.cos(a)],
+        [np.cos(a), -np.sin(a)]
+      ]),
+    ]
 
 class FunctionalTanhNet(FunctionalNet):
   def __init__(self, i, j):
@@ -174,15 +198,22 @@ class ChebyshevNet(FunctionalTanhNet):
   def __init__(self, i, j):
     super().__init__(i, j)
 
-  def backward(self, x, y, lr):
-    pass
+    d = lambda a: np.array([
+      [0, 1],
+      [4*a, 12*(a**2) - 3]
+    ])
+    d2 = lambda a: np.array([
+      [1, 4*a],
+      [12*(a**2) - 3, 32*(d**3) - 16*d]
+    ])
+    self.derivs = [d, d]
 
   @staticmethod
   def form_weights(i, j):
     l = lambda a, b, c: np.array([1, a, 2*(b**2) - 1, 4*(c**3) - 3*c])
     l2 = lambda a, b, c, d: np.array([a, 2*(b**2) - 1, 4*(c**3) - 3*c, 8*(d**4) - 8*(d**2) + 1])
-    return l(i, i, i), l(j, j, j)
-    # return l2(i, i, i, i), l2(j, j, j, j)
+    # return l(i, i, i), l(j, j, j)
+    return l2(i, i, i, i), l2(j, j, j, j)
 
 class ResNet:
   def __init__(self, w):
@@ -322,12 +353,15 @@ def train(epochs, m, X, Y, lr):
       y_hat = m.forward(x)
 
       _loss += loss(y_hat, y)
+
+      pos = parameter_positions[WEIGHTS_DIST]
+      path = (m.w[pos[0][0]][pos[0][1], [pos[0][2]]], m.w[pos[1][0]][pos[1][1], [pos[1][2]]], _loss)
+
       m.backward(x, y, anneal(lr, epoch) if ADD_ANNEALING else lr)
 
     losses.append(_loss)
 
-    pos = parameter_positions[WEIGHTS_DIST]
-    sgd_path.append((m.w[pos[0][0]][pos[0][1], [pos[0][2]]], m.w[pos[1][0]][pos[1][1], [pos[1][2]]], _loss))
+    sgd_path.append(path)
 
   return sgd_path, losses
 
@@ -410,10 +444,10 @@ if __name__ == "__main__":
   X = get_rand((2, NUM_SAMPLES))
   Y = forward(X, form_weights(rand[0], rand[1], fixed), net=Net)[-1]
 
-  epochs = 1000
-  lr = 0.1 if WEIGHTS_DIST == 'rotational' else 1
+  epochs = 10000
+  lr = 0.1 if WEIGHTS_DIST in ['rotational', 'monomial', 'chebyshev', 'resnet'] else 1
 
-  num_paths = 0
+  num_paths = 3
   sgd_paths = []
 
   # Model fixed weights set to same as Y, change to random to achieve non-convexity
@@ -440,5 +474,5 @@ if __name__ == "__main__":
 
   # plot_losses(losses, epochs)
   # plot(model_fixed, Y, sgd_paths)
-  plot_3d(rand[0], rand[1], model_fixed, Y, net=Net)
-  # plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths, net=Net)
+  # plot_3d(rand[0], rand[1], model_fixed, Y, net=Net)
+  plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths, net=Net)

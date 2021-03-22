@@ -8,13 +8,12 @@ from matplotlib import cm
 NUM_SAMPLES = 100
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'monomial'
+WEIGHTS_DIST = 'chebyshev'
 MODEL_FIXED_SAME = True
 
-RAND_SD = 1
+RAND_SD = 0.9
 RAND_DIST = 'uniform'
-AXIS_SIZE = 5
-
+AXIS_SIZE = 0.9
 ADD_NOISE = False
 NOISE_STRENGTH = 5
 
@@ -144,7 +143,21 @@ class RotationalNet(FunctionalNet):
     self.w = self.form_shell_weights(self.i, self.j)
     self._w = form_weights(self.i, self.j, [0]*6)
 
-class MonomialNet(FunctionalNet):
+class FunctionalTanhNet(FunctionalNet):
+  def __init__(self, i, j):
+    super().__init__(i, j)
+
+  def forward(self, x):
+    self.a1, self.a2 = FunctionalTanhNet._forward(x, self._w)
+    return self.a2
+
+  @staticmethod
+  def _forward(x, w):
+    a1 = sigmoid(w[0] @ x) * 2 - 1
+    a2 = w[1] @ a1
+    return a1, a2
+
+class MonomialNet(FunctionalTanhNet):
   def __init__(self, i, j):
     super().__init__(i, j)
 
@@ -157,7 +170,7 @@ class MonomialNet(FunctionalNet):
     l = lambda a, b, c, d: np.array([a, b**2, c**3, d**4])
     return l(i, i, i, i), l(j, j, j, j)
 
-class ChebyshevNet(FunctionalNet):
+class ChebyshevNet(FunctionalTanhNet):
   def __init__(self, i, j):
     super().__init__(i, j)
 
@@ -166,11 +179,10 @@ class ChebyshevNet(FunctionalNet):
 
   @staticmethod
   def form_weights(i, j):
-    l1 = lambda a, b, c: np.array([1, a, 2*(b**2) - 1, 4*(c**3) - 3*c])
+    l = lambda a, b, c: np.array([1, a, 2*(b**2) - 1, 4*(c**3) - 3*c])
     l2 = lambda a, b, c, d: np.array([a, 2*(b**2) - 1, 4*(c**3) - 3*c, 8*(d**4) - 8*(d**2) + 1])
-    # return l(i, i, i), l(j, j, j)
-    return l1(i, i, i), l2(j, j, j, j)
-    # return [i, j, j, 0], [i, j, j, 0]
+    return l(i, i, i), l(j, j, j)
+    # return l2(i, i, i, i), l2(j, j, j, j)
 
 class ResNet:
   def __init__(self, w):
@@ -383,40 +395,45 @@ def get_rand(shape):
   elif RAND_DIST == 'uniform':
     return np.random.uniform(-RAND_SD, high=RAND_SD, size=shape)
 
+nets = {
+  'resnet': ResNet,
+  'monomial': MonomialNet,
+  'chebyshev': ChebyshevNet,
+}
+
 if __name__ == "__main__":
   rand = get_rand(12)
   fixed = rand[2:]
 
+  Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
+
   X = get_rand((2, NUM_SAMPLES))
-  Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
+  Y = forward(X, form_weights(rand[0], rand[1], fixed), net=Net)[-1]
 
   epochs = 1000
   lr = 0.1 if WEIGHTS_DIST == 'rotational' else 1
 
-  num_paths = 3
+  num_paths = 0
   sgd_paths = []
 
   # Model fixed weights set to same as Y, change to random to achieve non-convexity
   model_fixed = fixed if MODEL_FIXED_SAME else get_rand(12)
 
-  Net = None
-
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE
 
-    if WEIGHTS_DIST == 'rotational':
+    Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
+
+    if Net and WEIGHTS_DIST != 'resnet':
+      model = Net(*rand_init)
+    elif WEIGHTS_DIST == 'rotational':
       model = RotationalNet(*rand_init)
-    elif WEIGHTS_DIST == 'monomial':
-      model = MonomialNet(*rand_init)
-    elif WEIGHTS_DIST == 'chebyshev':
-      model = ChebyshevNet(*rand_init)
     else:
       if WEIGHTS_DIST == 'resnet':
         Net = ResNet
+        model = Net(form_weights(*rand_init, model_fixed))
       else:
-        Net = TwoLayerNet
-
-      model = Net(form_weights(*rand_init, model_fixed))
+        model = TwoLayerNet(form_weights(*rand_init, model_fixed))
 
     path, losses = train(epochs, model, X, Y, lr)
     sgd_paths.append(path)

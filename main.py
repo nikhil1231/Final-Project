@@ -2,25 +2,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-# 4, 6 for good rotational, 7 for uphill rotational
-np.random.seed(9)
-
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'chebyshev'
+WEIGHTS_DIST = 'skew'
 MODEL_FIXED_SAME = True
 
 dimensions = {
-  'first': [3, 15],
+  'first': [1, 1],
   'second': [3, 15],
   'equal': [3, 15],
   'rotational': [3, 5],
-  'skew': [3, 10],
+  'skew': [1, 1],
   'resnet': [3, 15],
   'monomial': [0.5, 0.5],
   'chebyshev': [0.9, 0.9],
 }
+
+seeds = {
+  'first': 0,
+  'second': 0,
+  'equal': 0,
+  'rotational': 0,
+  'skew': 5,
+  'resnet': 0,
+  'monomial': 0,
+  'chebyshev': 0,
+}
+np.random.seed(seeds[WEIGHTS_DIST])
 
 RAND_SD = dimensions[WEIGHTS_DIST][0]
 RAND_DIST = 'uniform'
@@ -290,6 +299,7 @@ def matrix(a):
 '''
 def form_weights(i, j, fixed):
   weights = [[fixed[0], fixed[1], fixed[2]], [fixed[3], fixed[4], fixed[5]]]
+  weights = list(map(lambda x: x/np.linalg.norm(x), weights))
 
   if WEIGHTS_DIST == 'rotational':
     weights = [np.cos(i), -np.sin(i), np.sin(i)], [np.cos(j), -np.sin(j), np.sin(j)]
@@ -304,7 +314,7 @@ def form_weights(i, j, fixed):
     return list(map(lambda x: matrix(x), weights))
 
   elif WEIGHTS_DIST == 'skew':
-    return [skew_symmetric(i), skew_symmetric(j), diag([fixed[6], fixed[7], fixed[8]])]
+    return [skew_symmetric(i), skew_symmetric(j)]
   else:
     pos = parameter_positions[WEIGHTS_DIST]
     weights[pos[0][0]][pos[0][1] + pos[0][2]] = i
@@ -321,10 +331,10 @@ def add_noise(m):
 def forward(x, w, net=None):
   if net:
     return net._forward(x, w)
-  a1 = sigmoid(w[0] @ x)
+  a1 = sigmoid(w[0] @ x)*2 - 1
   a2 = w[1] @ a1
   if len(w) > 2:
-    a3 = w[2] @ sigmoid(a2)
+    a3 = w[2] @ (2*sigmoid(a2)-1)
     return a1, a2, a3
   return a1, a2
 
@@ -423,10 +433,10 @@ def plot_losses(losses, epochs):
   plt.plot(epoch_axis, losses)
   plt.show()
 
-def get_rand(shape):
-  if RAND_DIST == 'normal':
+def get_rand(shape, dist=RAND_DIST):
+  if dist == 'normal':
     return np.random.normal(0, RAND_SD, shape)
-  elif RAND_DIST == 'uniform':
+  elif dist == 'uniform':
     return np.random.uniform(-RAND_SD, high=RAND_SD, size=shape)
 
 nets = {
@@ -436,7 +446,7 @@ nets = {
 }
 
 if __name__ == "__main__":
-  rand = get_rand(12)
+  rand = get_rand(12, 'uniform')
   fixed = rand[2:]
 
   Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
@@ -445,16 +455,16 @@ if __name__ == "__main__":
   Y = forward(X, form_weights(rand[0], rand[1], fixed), net=Net)[-1]
 
   epochs = 10000
-  lr = 0.1 if WEIGHTS_DIST in ['rotational', 'monomial', 'chebyshev', 'resnet'] else 1
+  lr = 0.1 if WEIGHTS_DIST in ['rotational', 'monomial', 'chebyshev', 'resnet'] else 0.7
 
-  num_paths = 3
+  num_paths = 1
   sgd_paths = []
 
   # Model fixed weights set to same as Y, change to random to achieve non-convexity
   model_fixed = fixed if MODEL_FIXED_SAME else get_rand(12)
 
   for _ in range(num_paths):
-    rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE
+    rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
 
     Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
 

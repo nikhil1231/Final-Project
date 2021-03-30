@@ -5,13 +5,13 @@ from matplotlib import cm
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'skew'
+WEIGHTS_DIST = 'equal'
 MODEL_FIXED_SAME = True
 
 dimensions = {
   'first': [1, 1],
   'second': [3, 15],
-  'equal': [3, 15],
+  'equal': [1, 1],
   'rotational': [3, 5],
   'skew': [1, 1],
   'resnet': [3, 15],
@@ -22,7 +22,7 @@ dimensions = {
 seeds = {
   'first': 0,
   'second': 0,
-  'equal': 0,
+  'equal': 5,
   'rotational': 0,
   'skew': 5,
   'resnet': 0,

@@ -6,7 +6,8 @@ import math
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'rotational'
+WEIGHTS_DIST = 'resnet'
+RESNET_DIST = 'rotational'
 MODEL_FIXED_SAME = True
 
 dimensions = {
@@ -15,7 +16,7 @@ dimensions = {
   'equal': [1, 1],
   'rotational': [math.pi, math.pi],
   'skew': [1, 1],
-  'resnet': [3, 15],
+  'resnet': [1, 1],
   'monomial': [0.5, 0.5],
   'chebyshev': [0.9, 0.9],
 }
@@ -24,17 +25,17 @@ seeds = {
   'first': 0,
   'second': 0,
   'equal': 5,
-  'rotational': 0,
+  'rotational': 1,
   'skew': 5,
-  'resnet': 0,
   'monomial': 0,
   'chebyshev': 0,
 }
-np.random.seed(seeds[WEIGHTS_DIST])
+DIST = RESNET_DIST if WEIGHTS_DIST == 'resnet' else WEIGHTS_DIST
+np.random.seed(seeds[DIST])
 
-RAND_SD = dimensions[WEIGHTS_DIST][0]
+RAND_SD = dimensions[DIST][0]
 RAND_DIST = 'uniform'
-AXIS_SIZE = dimensions[WEIGHTS_DIST][1]
+AXIS_SIZE = dimensions[DIST][1]
 ADD_NOISE = False
 NOISE_STRENGTH = 5
 
@@ -238,23 +239,17 @@ class ChebyshevNet(FunctionalTanhNet):
 class ResNet:
   def __init__(self, w):
     self.w = w
-    self.is_3_layer = len(w) == 3
 
   def forward(self, x):
-    if self.is_3_layer:
-      self.a1, self.a2, self.a3 = ResNet._forward(x, self.w)
-      return self.a3
-    else:
-      self.a1, self.a2 = ResNet._forward(x, self.w)
-      return self.a2
+    self.a1, self.a2 = ResNet._forward(x, self.w)
+    return self.a2
 
   @staticmethod
   def _forward(x, w):
-    a1 = sigmoid(w[0] @ x) + x
+    # a1 = sigmoid(w[0] @ x) + x
+    # a2 = w[1] @ a1 + a1
+    a1 = sigmoid(w[0] @ x + x)*2 - 1
     a2 = w[1] @ a1 + a1
-    if len(w) > 2:
-      a3 = w[2] @ sigmoid(a2) + a2
-      return a1, a2, a3
     return a1, a2
 
   def backward(self, x, y, lr):
@@ -264,18 +259,13 @@ class ResNet:
     if ADD_NOISE:
       x = add_noise(x)
 
-    # w[2] will always be fixed, so we can "remove" it before calculating grads
-    if self.is_3_layer:
-      inv = np.linalg.inv(self.w[2])
-      y = inv_sigmoid(inv @ y)
-
     error = self.a2 - y
 
     dw[1] = error @ self.a1.T
     dw[0] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ x.T
 
     # Only update weights for non-fixed parameters
-    pos = parameter_positions[WEIGHTS_DIST]
+    pos = parameter_positions[RESNET_DIST]
     for _pos in pos:
       self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]] / len(x)
 
@@ -283,14 +273,14 @@ class ResNet:
       if _pos[1:3] == (0, 1):
         self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0] / len(x)
 
-        if WEIGHTS_DIST == 'skew':
+        if RESNET_DIST == 'skew':
           self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
 
         diff = self.w[_pos[0]][0, 1] - self.w[_pos[0]][1, 0]
         self.w[_pos[0]][0, 1] -= diff / 2
         self.w[_pos[0]][1, 0] += diff / 2
 
-        if WEIGHTS_DIST == 'skew':
+        if RESNET_DIST == 'skew':
           self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
 
 def diag(a):
@@ -308,30 +298,30 @@ def matrix(a):
 '''
   Distribute parameters i and j into 2x2 matrices, to form the weights.
 '''
-def form_weights(i, j, fixed):
+def form_weights(i, j, fixed, dist=WEIGHTS_DIST):
   weights = [[fixed[0], fixed[1], fixed[2]], [fixed[3], fixed[4], fixed[5]]]
   weights = list(map(lambda x: x/np.linalg.norm(x), weights))
 
-  if WEIGHTS_DIST == 'rotational':
+  if dist == 'rotational':
     weights = [np.cos(i), -np.sin(i), np.sin(i)], [np.cos(j), -np.sin(j), np.sin(j)]
     return list(map(lambda x: forward_diag(x), weights))
 
-  elif WEIGHTS_DIST == 'monomial':
+  elif dist == 'monomial':
     weights = MonomialNet.form_weights(i, j)
     return list(map(lambda x: matrix(x), weights))
 
-  elif WEIGHTS_DIST == 'chebyshev':
+  elif dist == 'chebyshev':
     weights = ChebyshevNet.form_weights(i, j)
     return list(map(lambda x: matrix(x), weights))
 
-  elif WEIGHTS_DIST == 'skew':
+  elif dist == 'skew':
     return [skew_symmetric(i), skew_symmetric(j)]
   else:
-    pos = parameter_positions[WEIGHTS_DIST]
+    pos = parameter_positions[dist]
     weights[pos[0][0]][pos[0][1] + pos[0][2]] = i
     weights[pos[1][0]][pos[1][1] + pos[1][2]] = j
 
-    if WEIGHTS_DIST in ['equal', 'second']:
+    if dist in ['equal', 'second']:
       weights += [[fixed[6], fixed[7], fixed[8]]]
 
   return list(map(lambda x: diag(x), weights))
@@ -387,7 +377,7 @@ def train(epochs, m, X, Y, lr):
   return sgd_path, losses
 
 def calc_loss(i, j, fixed, Y, net):
-  y_hat = forward(X, form_weights(i, j, fixed), net)[-1]
+  y_hat = forward(X, form_weights(i, j, fixed, dist=DIST), net)[-1]
   return loss(y_hat, Y)
 
 def create_landscape(axis, fixed, Y, net):
@@ -464,10 +454,10 @@ if __name__ == "__main__":
   Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
 
   X = get_rand((2, NUM_SAMPLES))
-  Y = forward(X, form_weights(rand[0], rand[1], fixed), net=Net)[-1]
+  Y = forward(X, form_weights(rand[0], rand[1], fixed, dist=DIST), net=Net)[-1]
 
   epochs = 10000
-  lr = 0.1 if WEIGHTS_DIST in ['rotational', 'monomial', 'chebyshev', 'resnet'] else 0.7
+  lr = 0.1 if WEIGHTS_DIST in nets else 0.7
 
   num_paths = 1
   sgd_paths = []
@@ -487,7 +477,7 @@ if __name__ == "__main__":
     else:
       if WEIGHTS_DIST == 'resnet':
         Net = ResNet
-        model = Net(form_weights(*rand_init, model_fixed))
+        model = Net(form_weights(*rand_init, model_fixed, dist=RESNET_DIST))
       else:
         model = TwoLayerNet(form_weights(*rand_init, model_fixed))
 

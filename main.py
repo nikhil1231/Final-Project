@@ -1,18 +1,19 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
+import math
 
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'equal'
+WEIGHTS_DIST = 'rotational'
 MODEL_FIXED_SAME = True
 
 dimensions = {
   'first': [1, 1],
   'second': [3, 15],
   'equal': [1, 1],
-  'rotational': [3, 5],
+  'rotational': [math.pi, math.pi],
   'skew': [1, 1],
   'resnet': [3, 15],
   'monomial': [0.5, 0.5],
@@ -175,6 +176,16 @@ class RotationalNet(FunctionalNet):
         [np.cos(a), -np.sin(a)]
       ]),
     ]
+
+  def forward(self, x):
+    self.a1, self.a2 = RotationalNet._forward(x, self._w)
+    return self.a2
+
+  @staticmethod
+  def _forward(x, w):
+    a1 = (sigmoid(w[0] @ x) * 2 - 1) * math.pi
+    a2 = w[1] @ a1
+    return a1, a2
 
 class FunctionalTanhNet(FunctionalNet):
   def __init__(self, i, j):
@@ -443,6 +454,7 @@ nets = {
   'resnet': ResNet,
   'monomial': MonomialNet,
   'chebyshev': ChebyshevNet,
+  'rotational': RotationalNet,
 }
 
 if __name__ == "__main__":
@@ -484,5 +496,5 @@ if __name__ == "__main__":
 
   # plot_losses(losses, epochs)
   # plot(model_fixed, Y, sgd_paths)
-  # plot_3d(rand[0], rand[1], model_fixed, Y, net=Net)
-  plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths, net=Net)
+  plot_3d(rand[0], rand[1], model_fixed, Y, net=Net)
+  # plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths, net=Net)

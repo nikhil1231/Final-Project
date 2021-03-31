@@ -385,25 +385,9 @@ def create_landscape(axis, fixed, Y, net):
 axis = np.arange(-AXIS_SIZE, AXIS_SIZE, AXIS_SIZE/100)
 
 '''
-  Plot 2D contours of the loss landscape
-'''
-def plot(fixed, Y, paths=None):
-  plt.contour(axis, axis, create_landscape(axis, fixed, Y), levels=20, cmap=cm.terrain)
-  if paths:
-    for path in paths:
-      params = list(zip(*path))
-      xs, ys = params[0], params[1]
-      plt.plot(xs, ys, color='red')
-      plt.scatter(xs[-1], ys[-1], color='red', marker='o')
-
-  plt.xlim([-AXIS_SIZE, AXIS_SIZE])
-  plt.ylim([-AXIS_SIZE, AXIS_SIZE])
-  plt.show()
-
-'''
   Plot 3D contours of the loss landscape
 '''
-def plot_3d(i, j, fixed, Y, paths=None, net=None):
+def plot(i, j, fixed, Y, paths=None, net=None):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
@@ -480,7 +464,5 @@ if __name__ == "__main__":
     path, losses = train(epochs, model, X, Y, lr)
     sgd_paths.append(path)
 
-  # plot_losses(losses, epochs)
-  # plot(fixed, Y, sgd_paths)
-  plot_3d(rand[0], rand[1], fixed, Y, net=Net)
-  # plot_3d(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)
+  plot(rand[0], rand[1], fixed, Y, net=Net)
+  # plot(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)

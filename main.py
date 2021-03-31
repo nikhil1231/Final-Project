@@ -8,7 +8,6 @@ BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'resnet'
 RESNET_DIST = 'rotational'
-MODEL_FIXED_SAME = True
 
 dimensions = {
   'first': [1, 1],
@@ -462,9 +461,6 @@ if __name__ == "__main__":
   num_paths = 1
   sgd_paths = []
 
-  # Model fixed weights set to same as Y, change to random to achieve non-convexity
-  model_fixed = fixed if MODEL_FIXED_SAME else get_rand(12)
-
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
 
@@ -477,14 +473,14 @@ if __name__ == "__main__":
     else:
       if WEIGHTS_DIST == 'resnet':
         Net = ResNet
-        model = Net(form_weights(*rand_init, model_fixed, dist=RESNET_DIST))
+        model = Net(form_weights(*rand_init, fixed, dist=RESNET_DIST))
       else:
-        model = TwoLayerNet(form_weights(*rand_init, model_fixed))
+        model = TwoLayerNet(form_weights(*rand_init, fixed))
 
     path, losses = train(epochs, model, X, Y, lr)
     sgd_paths.append(path)
 
   # plot_losses(losses, epochs)
-  # plot(model_fixed, Y, sgd_paths)
-  plot_3d(rand[0], rand[1], model_fixed, Y, net=Net)
-  # plot_3d(rand[0], rand[1], model_fixed, Y, sgd_paths, net=Net)
+  # plot(fixed, Y, sgd_paths)
+  plot_3d(rand[0], rand[1], fixed, Y, net=Net)
+  # plot_3d(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)

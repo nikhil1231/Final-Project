@@ -6,7 +6,7 @@ import math
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'rotational'
+WEIGHTS_DIST = 'chebyshev'
 RESNET_DIST = 'rotational'
 
 dimensions = {
@@ -184,8 +184,8 @@ class FunctionalTanhNet(FunctionalNet):
 
   @staticmethod
   def _forward(x, w):
-    a1 = sigmoid(w[0] @ x) * 2 - 1
-    a2 = w[1] @ a1
+    a1 = sigmoid(w[0] @ x)
+    a2 = w[1] @ (2*a1 - 1)
     return a1, a2
 
 class ChebyshevNet(FunctionalTanhNet):
@@ -266,12 +266,12 @@ def forward(x, w, net=None):
   if net:
     return net._forward(x, w)
 
+  a1 = sigmoid(w[0] @ x)
   if DIST in ['equal', 'skew']:
-    a1 = sigmoid(w[0] @ x) * 2 - 1
+    a2 = w[1] @ (2*a1 - 1)
   else:
-    a1 = sigmoid(w[0] @ x)
+    a2 = w[1] @ a1
 
-  a2 = w[1] @ a1
   return a1, a2
 
 def loss(y_hat, Y):
@@ -371,7 +371,7 @@ if __name__ == "__main__":
   X = get_rand((2, NUM_SAMPLES))
   Y = forward(X, form_weights(rand[0], rand[1], fixed, dist=DIST), net=Net)[-1]
 
-  epochs = 3000
+  epochs = 100
   lr = learning_rates[DIST]
 
   num_paths = 3
@@ -400,4 +400,4 @@ if __name__ == "__main__":
 
   # plot(rand[0], rand[1], fixed, Y, net=Net)
   plot(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)
-  plot_losses(losses, epochs)
+  # plot_losses(losses, epochs)

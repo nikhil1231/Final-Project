@@ -10,13 +10,12 @@ WEIGHTS_DIST = 'rotational'
 RESNET_DIST = 'rotational'
 
 dimensions = {
-  'first': [1, 1],
+  'first': [2, 5],
   'second': [3, 15],
   'equal': [1, 1],
   'rotational': [math.pi, math.pi],
   'skew': [1, 1],
   'resnet': [1, 1],
-  'monomial': [0.5, 0.5],
   'chebyshev': [0.9, 0.9],
 }
 
@@ -27,7 +26,6 @@ learning_rates = {
   'rotational': 0.1,
   'skew': 0.1,
   'resnet': 0.1,
-  'monomial': 0.1,
   'chebyshev': 0.1,
 }
 
@@ -37,7 +35,6 @@ seeds = {
   'equal': 5,
   'rotational': 1,
   'skew': 5,
-  'monomial': 0,
   'chebyshev': 0,
 }
 DIST = RESNET_DIST if WEIGHTS_DIST == 'resnet' else WEIGHTS_DIST
@@ -46,11 +43,6 @@ np.random.seed(seeds[DIST])
 RAND_SD = dimensions[DIST][0]
 RAND_DIST = 'uniform'
 AXIS_SIZE = dimensions[DIST][1]
-ADD_NOISE = False
-NOISE_STRENGTH = 5
-
-ADD_ANNEALING = False
-ANNEALING_STRENGTH = 100
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
@@ -64,32 +56,18 @@ parameter_positions = {
 }
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
-inv_sigmoid = lambda y: np.log(y / (1.0 - y))
 
 class TwoLayerNet:
   def __init__(self, w):
     self.w = w
-    self.is_3_layer = len(w) == 3
 
   def forward(self, x):
-    if self.is_3_layer:
-      self.a1, self.a2, self.a3 = forward(x, self.w)
-      return self.a3
-    else:
-      self.a1, self.a2 = forward(x, self.w)
-      return self.a2
+    self.a1, self.a2 = forward(x, self.w)
+    return self.a2
 
   def backward(self, x, y, lr):
 
     dw = [None] * 2
-
-    if ADD_NOISE:
-      x = add_noise(x)
-
-    # w[2] will always be fixed, so we can "remove" it before calculating grads
-    if self.is_3_layer:
-      inv = np.linalg.inv(self.w[2])
-      y = inv_sigmoid(inv @ y)
 
     error = self.a2 - y
 
@@ -99,11 +77,12 @@ class TwoLayerNet:
     # Only update weights for non-fixed parameters
     pos = parameter_positions[WEIGHTS_DIST]
     for _pos in pos:
-      self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]] / len(x)
+      self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]]
+      self.w[_pos[0]][_pos[1], _pos[2]] = min(max(self.w[_pos[0]][_pos[1], _pos[2]], -AXIS_SIZE), AXIS_SIZE)
 
       # If the same parameter appears twice on the diagonal, fix them to be the same
       if _pos[1:3] == (0, 1):
-        self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0] / len(x)
+        self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0]
 
         if WEIGHTS_DIST == 'skew':
           self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
@@ -147,12 +126,9 @@ class FunctionalNet:
 
     dw = [None] * 2
 
-    if ADD_NOISE:
-      x = add_noise(x)
-
     error = self.a2 - y
 
-    # Derivative of rotational matrix
+    # Derivative of functional matrix
     da1 = self.derivs[0]
     da2 = self.derivs[1]
 
@@ -194,7 +170,6 @@ class RotationalNet(FunctionalNet):
 
   @staticmethod
   def _forward(x, w):
-    # a1 = (sigmoid(w[0] @ x) * 2 - 1) * math.pi
     a1 = sigmoid(w[0] @ x)
     a2 = w[1] @ a1
     return a1, a2
@@ -213,19 +188,6 @@ class FunctionalTanhNet(FunctionalNet):
     a2 = w[1] @ a1
     return a1, a2
 
-class MonomialNet(FunctionalTanhNet):
-  def __init__(self, i, j):
-    super().__init__(i, j)
-
-  def backward(self, x, y, lr):
-    pass
-
-  @staticmethod
-  def form_weights(i, j):
-    # l = lambda a, b, c: np.array([1, a, b**2, c**3])
-    l = lambda a, b, c, d: np.array([a, b**2, c**3, d**4])
-    return l(i, i, i, i), l(j, j, j, j)
-
 class ChebyshevNet(FunctionalTanhNet):
   def __init__(self, i, j):
     super().__init__(i, j)
@@ -234,18 +196,12 @@ class ChebyshevNet(FunctionalTanhNet):
       [0, 1],
       [4*a, 12*(a**2) - 3]
     ])
-    d2 = lambda a: np.array([
-      [1, 4*a],
-      [12*(a**2) - 3, 32*(d**3) - 16*d]
-    ])
     self.derivs = [d, d]
 
   @staticmethod
   def form_weights(i, j):
-    l = lambda a, b, c: np.array([1, a, 2*(b**2) - 1, 4*(c**3) - 3*c])
-    l2 = lambda a, b, c, d: np.array([a, 2*(b**2) - 1, 4*(c**3) - 3*c, 8*(d**4) - 8*(d**2) + 1])
-    # return l(i, i, i), l(j, j, j)
-    return l2(i, i, i, i), l2(j, j, j, j)
+    l = lambda a: np.array([1, a, 2*(a**2) - 1, 4*(a**3) - 3*a])
+    return l(i), l(j)
 
 class ResNet:
   def __init__(self, w):
@@ -267,32 +223,8 @@ class ResNet:
 
     dw = [None] * 2
 
-    if ADD_NOISE:
-      x = add_noise(x)
-
-    error = self.a2 - y
-
-    dw[1] = error @ self.a1.T
-    dw[0] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ x.T
-
-    # Only update weights for non-fixed parameters
-    pos = parameter_positions[RESNET_DIST]
-    for _pos in pos:
-      self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]] / len(x)
-
-      # If the same parameter appears twice on the diagonal, fix them to be the same
-      if _pos[1:3] == (0, 1):
-        self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0] / len(x)
-
-        if RESNET_DIST == 'skew':
-          self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
-
-        diff = self.w[_pos[0]][0, 1] - self.w[_pos[0]][1, 0]
-        self.w[_pos[0]][0, 1] -= diff / 2
-        self.w[_pos[0]][1, 0] += diff / 2
-
-        if RESNET_DIST == 'skew':
-          self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
+    dw[1] = matrix([0] * 4)
+    dw[0] = matrix([0] * 4)
 
 def diag(a):
   return np.array([[a[0], a[1]], [a[1], a[2]]])
@@ -317,10 +249,6 @@ def form_weights(i, j, fixed, dist=WEIGHTS_DIST):
     weights = [np.cos(i), -np.sin(i), np.sin(i)], [np.cos(j), -np.sin(j), np.sin(j)]
     return list(map(lambda x: forward_diag(x), weights))
 
-  elif dist == 'monomial':
-    weights = MonomialNet.form_weights(i, j)
-    return list(map(lambda x: matrix(x), weights))
-
   elif dist == 'chebyshev':
     weights = ChebyshevNet.form_weights(i, j)
     return list(map(lambda x: matrix(x), weights))
@@ -332,34 +260,27 @@ def form_weights(i, j, fixed, dist=WEIGHTS_DIST):
     weights[pos[0][0]][pos[0][1] + pos[0][2]] = i
     weights[pos[1][0]][pos[1][1] + pos[1][2]] = j
 
-    if dist in ['equal', 'second']:
-      weights += [[fixed[6], fixed[7], fixed[8]]]
-
   return list(map(lambda x: diag(x), weights))
-
-def add_noise(m):
-  return m + np.random.normal(0, NOISE_STRENGTH, np.shape(m))
 
 def forward(x, w, net=None):
   if net:
     return net._forward(x, w)
-  a1 = sigmoid(w[0] @ x)*2 - 1
+
+  if DIST in ['equal', 'skew']:
+    a1 = sigmoid(w[0] @ x) * 2 - 1
+  else:
+    a1 = sigmoid(w[0] @ x)
+
   a2 = w[1] @ a1
-  if len(w) > 2:
-    a3 = w[2] @ (2*sigmoid(a2)-1)
-    return a1, a2, a3
   return a1, a2
 
 def loss(y_hat, Y):
   return sum(((y_hat - Y) ** 2).flatten()) / 2
 
-def anneal(lr, epoch):
-  return lr * np.exp(-epoch/ANNEALING_STRENGTH)
-
 def train(epochs, m, X, Y, lr):
   sgd_path = []
   losses = []
-  for epoch in range(epochs):
+  for _ in range(epochs):
     xs = np.split(X, NUM_SAMPLES / BATCH_SIZE, axis=1)
     ys = np.split(Y, NUM_SAMPLES / BATCH_SIZE, axis=1)
 
@@ -369,8 +290,6 @@ def train(epochs, m, X, Y, lr):
 
     _loss = 0
 
-    lr = anneal(lr, epoch)
-
     for x, y in zipped:
       y_hat = m.forward(x)
 
@@ -379,7 +298,7 @@ def train(epochs, m, X, Y, lr):
       pos = parameter_positions[WEIGHTS_DIST]
       path = (m.w[pos[0][0]][pos[0][1], [pos[0][2]]], m.w[pos[1][0]][pos[1][1], [pos[1][2]]], _loss)
 
-      m.backward(x, y, anneal(lr, epoch) if ADD_ANNEALING else lr)
+      m.backward(x, y, lr)
 
     losses.append(_loss)
 
@@ -426,7 +345,9 @@ def plot(i, j, fixed, Y, paths=None, net=None):
 '''
 def plot_losses(losses, epochs):
   epoch_axis = np.arange(1, epochs + 1)
-  plt.plot(epoch_axis, losses)
+  for loss_plt in losses:
+    plt.plot(epoch_axis, loss_plt)
+  # plt.yscale('log')
   plt.show()
 
 def get_rand(shape, dist=RAND_DIST):
@@ -437,7 +358,6 @@ def get_rand(shape, dist=RAND_DIST):
 
 nets = {
   'resnet': ResNet,
-  'monomial': MonomialNet,
   'chebyshev': ChebyshevNet,
   'rotational': RotationalNet,
 }
@@ -451,11 +371,12 @@ if __name__ == "__main__":
   X = get_rand((2, NUM_SAMPLES))
   Y = forward(X, form_weights(rand[0], rand[1], fixed, dist=DIST), net=Net)[-1]
 
-  epochs = 10000
+  epochs = 3000
   lr = learning_rates[DIST]
 
   num_paths = 3
   sgd_paths = []
+  losses = []
 
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
@@ -473,8 +394,10 @@ if __name__ == "__main__":
       else:
         model = TwoLayerNet(form_weights(*rand_init, fixed))
 
-    path, losses = train(epochs, model, X, Y, lr)
+    path, _losses = train(epochs, model, X, Y, lr)
     sgd_paths.append(path)
+    losses.append(_losses)
 
   # plot(rand[0], rand[1], fixed, Y, net=Net)
   plot(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)
+  plot_losses(losses, epochs)

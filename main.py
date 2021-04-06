@@ -6,7 +6,7 @@ import math
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'resnet'
+WEIGHTS_DIST = 'rotational'
 RESNET_DIST = 'rotational'
 
 dimensions = {
@@ -18,6 +18,17 @@ dimensions = {
   'resnet': [1, 1],
   'monomial': [0.5, 0.5],
   'chebyshev': [0.9, 0.9],
+}
+
+learning_rates = {
+  'first': 0.1,
+  'second': 0.1,
+  'equal': 0.1,
+  'rotational': 0.1,
+  'skew': 0.1,
+  'resnet': 0.1,
+  'monomial': 0.1,
+  'chebyshev': 0.1,
 }
 
 seeds = {
@@ -83,7 +94,7 @@ class TwoLayerNet:
     error = self.a2 - y
 
     dw[1] = error @ self.a1.T
-    dw[0] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ x.T
+    dw[0] = self.w[1].T @ error * 2 * self.a1 * (1 - self.a1) @ x.T
 
     # Only update weights for non-fixed parameters
     pos = parameter_positions[WEIGHTS_DIST]
@@ -183,7 +194,8 @@ class RotationalNet(FunctionalNet):
 
   @staticmethod
   def _forward(x, w):
-    a1 = (sigmoid(w[0] @ x) * 2 - 1) * math.pi
+    # a1 = (sigmoid(w[0] @ x) * 2 - 1) * math.pi
+    a1 = sigmoid(w[0] @ x)
     a2 = w[1] @ a1
     return a1, a2
 
@@ -440,9 +452,9 @@ if __name__ == "__main__":
   Y = forward(X, form_weights(rand[0], rand[1], fixed, dist=DIST), net=Net)[-1]
 
   epochs = 10000
-  lr = 0.1 if WEIGHTS_DIST in nets else 0.7
+  lr = learning_rates[DIST]
 
-  num_paths = 1
+  num_paths = 3
   sgd_paths = []
 
   for _ in range(num_paths):
@@ -464,5 +476,5 @@ if __name__ == "__main__":
     path, losses = train(epochs, model, X, Y, lr)
     sgd_paths.append(path)
 
-  plot(rand[0], rand[1], fixed, Y, net=Net)
-  # plot(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)
+  # plot(rand[0], rand[1], fixed, Y, net=Net)
+  plot(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)

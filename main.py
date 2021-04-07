@@ -6,7 +6,7 @@ import math
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'chebyshev'
+WEIGHTS_DIST = 'first'
 RESNET_DIST = 'rotational'
 
 dimensions = {
@@ -20,7 +20,7 @@ dimensions = {
 }
 
 learning_rates = {
-  'first': 0.1,
+  'first': 0.5,
   'second': 0.1,
   'equal': 0.1,
   'rotational': 0.1,
@@ -30,7 +30,7 @@ learning_rates = {
 }
 
 seeds = {
-  'first': 0,
+  'first': 1,
   'second': 0,
   'equal': 5,
   'rotational': 1,

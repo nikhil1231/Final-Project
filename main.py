@@ -6,7 +6,7 @@ import math
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'first'
+WEIGHTS_DIST = 'chebyshev'
 RESNET_DIST = 'rotational'
 
 dimensions = {
@@ -35,7 +35,7 @@ seeds = {
   'equal': 5,
   'rotational': 1,
   'skew': 5,
-  'chebyshev': 0,
+  'chebyshev': 5,
 }
 DIST = RESNET_DIST if WEIGHTS_DIST == 'resnet' else WEIGHTS_DIST
 np.random.seed(seeds[DIST])
@@ -374,7 +374,7 @@ if __name__ == "__main__":
   epochs = 100
   lr = learning_rates[DIST]
 
-  num_paths = 3
+  num_paths = 0
   sgd_paths = []
   losses = []
 

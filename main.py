@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
-import math
 
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
@@ -12,11 +11,19 @@ RESNET = False
 ADD_NOISE = True
 NOISE_SD = 0.05
 
+LR_MIN = 0.03
+LR_MAX = 0.4
+LR_T0 = 100
+LR_T_MULT = 2
+
+LR_T = LR_T0
+LR_T_CUR = 0
+
 dimensions = {
   'first': [2, 5],
   'second': [3, 15],
   'equal': [1, 1],
-  'rotational': [math.pi, math.pi],
+  'rotational': [np.pi, np.pi],
   'skew': [1, 1],
   'chebyshev': [0.9, 0.9],
 }
@@ -254,9 +261,24 @@ def forward(x, w, scaled=SCALED):
 def loss(y_hat, Y):
   return sum(((y_hat - Y) ** 2).flatten()) / 2
 
+def anneal_lr(lr):
+  global LR_T, LR_T_CUR
+  if LR_T_CUR == LR_T:
+    # Reset
+    LR_T_CUR = 0
+    LR_T *= LR_T_MULT
+  LR_T_CUR += 1
+  return LR_MIN + 0.5 * (LR_MAX - LR_MIN) * (1 + np.cos(np.pi * LR_T_CUR / LR_T))
+
 def train(epochs, m, X, Y, lr):
+  global LR_T, LR_T_CUR
   sgd_path = []
   losses = []
+  lrs = []
+
+  LR_T_CUR = 0
+  LR_T = LR_T0
+
   for _ in range(epochs):
     xs = np.split(X, NUM_SAMPLES / BATCH_SIZE, axis=1)
     ys = np.split(Y, NUM_SAMPLES / BATCH_SIZE, axis=1)
@@ -266,6 +288,8 @@ def train(epochs, m, X, Y, lr):
     np.random.shuffle(zipped)
 
     _loss = 0
+
+    lr = anneal_lr(lr)
 
     for x, y in zipped:
       y_hat = m.forward(x)
@@ -278,10 +302,10 @@ def train(epochs, m, X, Y, lr):
       m.backward(x, y, lr)
 
     losses.append(_loss)
-
+    lrs.append(lr)
     sgd_path.append(path)
 
-  return sgd_path, losses
+  return sgd_path, losses, lrs
 
 def calc_loss(i, j, fixed, Y):
   y_hat = forward(X, form_weights(i, j, fixed))[-1]
@@ -326,6 +350,14 @@ def plot_losses(losses, epochs):
   # plt.yscale('log')
   plt.show()
 
+def plot_lrs(lrs, epochs, plot_log=True):
+  epoch_axis = np.arange(1, epochs + 1)
+  plt.plot(epoch_axis, lrs)
+  if plot_log:
+    plt.yscale('log')
+    plt.ylim(1e-4, LR_MAX * 1.1)
+  plt.show()
+
 def get_rand(shape, dist=RAND_DIST):
   if dist == 'normal':
     return np.random.normal(0, RAND_SD, shape)
@@ -353,9 +385,10 @@ if __name__ == "__main__":
   epochs = 1000
   lr = learning_rates[WEIGHTS_DIST]
 
-  num_paths = 10
+  num_paths = 5
   sgd_paths = []
   losses = []
+  lrs = []
 
   Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
 
@@ -367,10 +400,11 @@ if __name__ == "__main__":
     else:
       model = ClassicalNet(form_weights(*rand_init, fixed))
 
-    path, _losses = train(epochs, model, X, Y_labels, lr)
+    path, _losses, lrs = train(epochs, model, X, Y_labels, lr)
     sgd_paths.append(path)
     losses.append(_losses)
 
   # plot(rand[0], rand[1], fixed, Y)
   plot(rand[0], rand[1], fixed, Y, sgd_paths)
   # plot_losses(losses, epochs)
+  plot_lrs(lrs, epochs, plot_log=False)

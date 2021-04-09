@@ -7,7 +7,7 @@ NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
-RESNET = False
+RESNET = True
 
 dimensions = {
   'first': [2, 5],
@@ -84,7 +84,9 @@ class ClassicalNet:
     else:
       dw[1] = error @ self.a1.T
 
-    dw[0] = self.w[1].T @ error * 2 * self.a1 * (1 - self.a1) @ x.T
+    w2 = self.w[1] + np.identity(2) if RESNET else self.w[1]
+
+    dw[0] = w2.T @ error * self.a1 * (1 - self.a1) @ x.T
 
     # Only update weights for non-fixed parameters
     pos = parameter_positions[WEIGHTS_DIST]
@@ -155,7 +157,8 @@ class FunctionalNet:
     dz1 = dw1(self.i) @ x
     da1 = self.a1 * (1 - self.a1) * dz1
     dz2 = 2 * da1
-    da2 = self._w[1] @ dz2
+    w2 = self._w[1] + np.identity(2) if RESNET else self._w[1]
+    da2 = w2 @ dz2
     d['i'] = error * da2
 
     avg_dj = np.sum(d['j'].flatten()) / BATCH_SIZE

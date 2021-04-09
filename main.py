@@ -119,24 +119,6 @@ class FunctionalNet:
     self.a2 = self._w[1] @ self.a1
     return self.a2
 
-  def get_loss(self, i, x, y):
-    weights = ChebyshevNet.form_weights(i, self.j)
-    w = list(map(lambda x: matrix(x), weights))
-
-    w1 = w[0]
-    z1 = w[0] @ x
-    a1 = sigmoid(z1)
-    z2 = 2*a1 - 1
-    a2 = w[1] @ z2
-    l = loss(a2, y)
-
-    return w1, z1, a1, z2, a2, l
-
-  def compare_grads(self, fd, d):
-    print("Finite diff", np.sum(fd))
-    print("Analytical", np.sum(d))
-    print("Difference", np.sum(fd) - np.sum(d))
-
   def backward(self, x, y, lr):
     if not self.derivs:
       print("ERROR: Derivatives not defined")
@@ -156,24 +138,14 @@ class FunctionalNet:
     daj = dw2(self.j) @ (2*self.a1-1)
     d['j'] = error * daj
 
-
     dz1 = dw1(self.i) @ x
     da1 = self.a1 * (1 - self.a1) * dz1
     dz2 = 2 * da1
     da2 = self._w[1] @ dz2
     d['i'] = error * da2
 
-    fd_a = 1e-8
-
-    grads_a = np.array(self.get_loss(self.i, x, y))
-    grads_b = np.array(self.get_loss(self.i + fd_a, x, y))
-
-    (fd_w1, fd_z1, fd_a1, fd_z2, fd_a2, fd_l) = (grads_b - grads_a) / fd_a
-
     avg_dj = np.sum(d['j'].flatten()) / BATCH_SIZE
     avg_di = np.sum(d['i'].flatten()) / BATCH_SIZE
-
-    self.compare_grads(fd_l, d['i'])
 
     self.j -= avg_dj * lr
     self.i -= avg_di * lr

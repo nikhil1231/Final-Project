@@ -81,7 +81,11 @@ class TwoLayerNet:
 
     error = self.a2 - y
 
-    dw[1] = error @ self.a1.T
+    if DIST in ['equal', 'skew']:
+      dw[1] = error @ (2*self.a1.T - 1)
+    else:
+      dw[1] = error @ self.a1.T
+
     dw[0] = self.w[1].T @ error * 2 * self.a1 * (1 - self.a1) @ x.T
 
     # Only update weights for non-fixed parameters

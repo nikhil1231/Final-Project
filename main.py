@@ -7,7 +7,7 @@ NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
-RESNET_DIST = 'rotational'
+RESNET = False
 
 dimensions = {
   'first': [2, 5],
@@ -15,7 +15,6 @@ dimensions = {
   'equal': [1, 1],
   'rotational': [math.pi, math.pi],
   'skew': [1, 1],
-  'resnet': [1, 1],
   'chebyshev': [0.9, 0.9],
 }
 
@@ -25,7 +24,6 @@ learning_rates = {
   'equal': 0.1,
   'rotational': 0.1,
   'skew': 0.1,
-  'resnet': 0.1,
   'chebyshev': 0.1,
 }
 
@@ -46,13 +44,13 @@ seeds = {
   'skew': 5,
   'chebyshev': 5,
 }
-DIST = RESNET_DIST if WEIGHTS_DIST == 'resnet' else WEIGHTS_DIST
-SCALED = scaled[DIST]
-np.random.seed(seeds[DIST])
 
-RAND_SD = dimensions[DIST][0]
+SCALED = scaled[WEIGHTS_DIST]
+np.random.seed(seeds[WEIGHTS_DIST])
+
+RAND_SD = dimensions[WEIGHTS_DIST][0]
 RAND_DIST = 'uniform'
-AXIS_SIZE = dimensions[DIST][1]
+AXIS_SIZE = dimensions[WEIGHTS_DIST][1]
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
@@ -67,7 +65,7 @@ parameter_positions = {
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
-class TwoLayerNet:
+class ClassicalNet:
   def __init__(self, w):
     self.w = w
 
@@ -81,7 +79,7 @@ class TwoLayerNet:
 
     error = self.a2 - y
 
-    if DIST in ['equal', 'skew']:
+    if SCALED:
       dw[1] = error @ (2*self.a1.T - 1)
     else:
       dw[1] = error @ self.a1.T
@@ -201,28 +199,6 @@ class ChebyshevNet(FunctionalNet):
     l = lambda a: np.array([1, a, 2*(a**2) - 1, 4*(a**3) - 3*a])
     return l(i), l(j)
 
-class ResNet:
-  def __init__(self, w):
-    self.w = w
-
-  def forward(self, x):
-    self.a1, self.a2 = ResNet._forward(x, self.w)
-    return self.a2
-
-  @staticmethod
-  def _forward(x, w):
-    # a1 = sigmoid(w[0] @ x) + x
-    # a2 = w[1] @ a1 + a1
-    a1 = sigmoid(w[0] @ x + x)*2 - 1
-    a2 = w[1] @ a1 + a1
-    return a1, a2
-
-  def backward(self, x, y, lr):
-
-    dw = [None] * 2
-
-    dw[1] = matrix([0] * 4)
-    dw[0] = matrix([0] * 4)
 
 def diag(a):
   return np.array([[a[0], a[1]], [a[1], a[2]]])
@@ -261,9 +237,10 @@ def form_weights(i, j, fixed, dist=WEIGHTS_DIST):
   return list(map(lambda x: diag(x), weights))
 
 def forward(x, w, scaled=SCALED):
-  a1 = sigmoid(w[0] @ x)
+  i = np.identity(2) if RESNET else matrix([0]*4)
+  a1 = sigmoid((w[0] + i) @ x)
   z1 = (2*a1-1) if scaled else a1
-  a2 = w[1] @ z1
+  a2 = (w[1] + i) @ z1
   return a1, a2
 
 def loss(y_hat, Y):
@@ -298,23 +275,22 @@ def train(epochs, m, X, Y, lr):
 
   return sgd_path, losses
 
-def calc_loss(i, j, fixed, Y, net):
-  y_hat = forward(X, form_weights(i, j, fixed, dist=DIST))[-1]
+def calc_loss(i, j, fixed, Y):
+  y_hat = forward(X, form_weights(i, j, fixed))[-1]
   return loss(y_hat, Y)
 
-def create_landscape(axis, fixed, Y, net):
-  return [[calc_loss(i, j, fixed, Y, net) for i in axis] for j in axis]
-
-axis = np.arange(-AXIS_SIZE, AXIS_SIZE, AXIS_SIZE/100)
+def create_landscape(axis, fixed, Y):
+  return [[calc_loss(i, j, fixed, Y) for i in axis] for j in axis]
 
 '''
   Plot 3D contours of the loss landscape
 '''
-def plot(i, j, fixed, Y, paths=None, net=None):
+def plot(i, j, fixed, Y, paths=None):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
-  Z = np.array(create_landscape(axis, fixed, Y, net))
+  axis = np.arange(-AXIS_SIZE, AXIS_SIZE, AXIS_SIZE/100)
+  Z = np.array(create_landscape(axis, fixed, Y))
   axis_x, axis_y = np.meshgrid(axis, axis)
 
   ax.plot_surface(axis_x, axis_y, Z, cmap=cm.terrain, linewidth=0, alpha=0.7)
@@ -349,7 +325,6 @@ def get_rand(shape, dist=RAND_DIST):
     return np.random.uniform(-RAND_SD, high=RAND_SD, size=shape)
 
 nets = {
-  'resnet': ResNet,
   'chebyshev': ChebyshevNet,
   'rotational': RotationalNet,
 }
@@ -358,38 +333,30 @@ if __name__ == "__main__":
   rand = get_rand(12, 'uniform')
   fixed = rand[2:]
 
-  Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
-
   X = get_rand((2, NUM_SAMPLES))
-  Y = forward(X, form_weights(rand[0], rand[1], fixed, dist=DIST))[-1]
+  Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
   epochs = 100
-  lr = learning_rates[DIST]
+  lr = learning_rates[WEIGHTS_DIST]
 
-  num_paths = 1
+  num_paths = 10
   sgd_paths = []
   losses = []
+
+  Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
 
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
 
-    Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
-
-    if Net and WEIGHTS_DIST != 'resnet':
+    if Net:
       model = Net(*rand_init)
-    elif WEIGHTS_DIST == 'rotational':
-      model = RotationalNet(*rand_init)
     else:
-      if WEIGHTS_DIST == 'resnet':
-        Net = ResNet
-        model = Net(form_weights(*rand_init, fixed, dist=RESNET_DIST))
-      else:
-        model = TwoLayerNet(form_weights(*rand_init, fixed))
+      model = ClassicalNet(form_weights(*rand_init, fixed))
 
     path, _losses = train(epochs, model, X, Y, lr)
     sgd_paths.append(path)
     losses.append(_losses)
 
-  # plot(rand[0], rand[1], fixed, Y, net=Net)
-  plot(rand[0], rand[1], fixed, Y, sgd_paths, net=Net)
+  # plot(rand[0], rand[1], fixed, Y)
+  plot(rand[0], rand[1], fixed, Y, sgd_paths)
   # plot_losses(losses, epochs)

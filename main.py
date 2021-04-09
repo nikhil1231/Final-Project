@@ -29,6 +29,15 @@ learning_rates = {
   'chebyshev': 0.1,
 }
 
+scaled = {
+  'first': False,
+  'second': False,
+  'equal': True,
+  'rotational': False,
+  'skew': True,
+  'chebyshev': True,
+}
+
 seeds = {
   'first': 1,
   'second': 0,
@@ -38,6 +47,7 @@ seeds = {
   'chebyshev': 5,
 }
 DIST = RESNET_DIST if WEIGHTS_DIST == 'resnet' else WEIGHTS_DIST
+SCALED = scaled[DIST]
 np.random.seed(seeds[DIST])
 
 RAND_SD = dimensions[DIST][0]
@@ -95,9 +105,10 @@ class TwoLayerNet:
           self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
 
 class FunctionalNet:
-  def __init__(self, i, j):
+  def __init__(self, i, j, scaled=False):
     self.i = i
     self.j = j
+    self.scaled = scaled
     self.w = self.form_shell_weights(i, j)
     self._w = form_weights(i, j, [0]*6)
     self.derivs = None
@@ -115,8 +126,7 @@ class FunctionalNet:
     ]
 
   def forward(self, x):
-    self.a1 = sigmoid(self._w[0] @ x)
-    self.a2 = self._w[1] @ self.a1
+    self.a1, self.a2 = forward(x, self._w, scaled=self.scaled)
     return self.a2
 
   def backward(self, x, y, lr):
@@ -135,7 +145,9 @@ class FunctionalNet:
     dw1 = self.derivs[0]
     dw2 = self.derivs[1]
 
-    daj = dw2(self.j) @ (2*self.a1-1)
+    z1 = (2*self.a1-1) if self.scaled else self.a1
+
+    daj = dw2(self.j) @ z1
     d['j'] = error * daj
 
     dz1 = dw1(self.i) @ x
@@ -170,33 +182,9 @@ class RotationalNet(FunctionalNet):
       ]),
     ]
 
-  def forward(self, x):
-    self.a1, self.a2 = RotationalNet._forward(x, self._w)
-    return self.a2
-
-  @staticmethod
-  def _forward(x, w):
-    a1 = sigmoid(w[0] @ x)
-    a2 = w[1] @ a1
-    return a1, a2
-
-class FunctionalTanhNet(FunctionalNet):
+class ChebyshevNet(FunctionalNet):
   def __init__(self, i, j):
-    super().__init__(i, j)
-
-  def forward(self, x):
-    self.a1, self.a2 = FunctionalTanhNet._forward(x, self._w)
-    return self.a2
-
-  @staticmethod
-  def _forward(x, w):
-    a1 = sigmoid(w[0] @ x)
-    a2 = w[1] @ (2*a1 - 1)
-    return a1, a2
-
-class ChebyshevNet(FunctionalTanhNet):
-  def __init__(self, i, j):
-    super().__init__(i, j)
+    super().__init__(i, j, scaled=True)
 
     d = lambda a: np.array([
       [0, 1],
@@ -268,16 +256,10 @@ def form_weights(i, j, fixed, dist=WEIGHTS_DIST):
 
   return list(map(lambda x: diag(x), weights))
 
-def forward(x, w, net=None):
-  if net:
-    return net._forward(x, w)
-
+def forward(x, w, scaled=SCALED):
   a1 = sigmoid(w[0] @ x)
-  if DIST in ['equal', 'skew']:
-    a2 = w[1] @ (2*a1 - 1)
-  else:
-    a2 = w[1] @ a1
-
+  z1 = (2*a1-1) if scaled else a1
+  a2 = w[1] @ z1
   return a1, a2
 
 def loss(y_hat, Y):
@@ -313,7 +295,7 @@ def train(epochs, m, X, Y, lr):
   return sgd_path, losses
 
 def calc_loss(i, j, fixed, Y, net):
-  y_hat = forward(X, form_weights(i, j, fixed, dist=DIST), net)[-1]
+  y_hat = forward(X, form_weights(i, j, fixed, dist=DIST))[-1]
   return loss(y_hat, Y)
 
 def create_landscape(axis, fixed, Y, net):
@@ -375,7 +357,7 @@ if __name__ == "__main__":
   Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
 
   X = get_rand((2, NUM_SAMPLES))
-  Y = forward(X, form_weights(rand[0], rand[1], fixed, dist=DIST), net=Net)[-1]
+  Y = forward(X, form_weights(rand[0], rand[1], fixed, dist=DIST))[-1]
 
   epochs = 100
   lr = learning_rates[DIST]

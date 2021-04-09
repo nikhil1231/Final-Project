@@ -2,17 +2,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
+TEST_NET = True
+
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
 RESNET = False
 
-ADD_NOISE = True
+ADD_NOISE = False
 NOISE_SD = 0.05
 
-LR_MIN = 0.03
-LR_MAX = 0.4
+LR_MIN = 0.01
+LR_MAX = 0.1
 LR_T0 = 100
 LR_T_MULT = 2
 
@@ -69,15 +71,25 @@ parameter_positions = {
   'rotational': [(0, 0, 0), (1, 0, 0)],
   'skew': [(0, 0, 1), (1, 0, 1)],
   'resnet': [(0, 0, 0), (0, 0, 1)],
-  'monomial': [(0, 0, 0), (1, 0, 0)],
-  'chebyshev': [(0, 0, 0), (1, 0, 0)],
+  'chebyshev': [(0, 0, 1), (1, 0, 1)],
+}
+
+'''
+Values in the weight distribution to be frozen during unbound SGD.
+
+In the form (matrix_i, row_i, col_i, value)
+'''
+test_bound_vars = {
+  'chebyshev': [(0, 0, 0, 1), (1, 0, 0, 1)],
 }
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
 class ClassicalNet:
-  def __init__(self, w):
+  def __init__(self, w, unbound=False):
     self.w = w
+    self.unbound = unbound
+    self.bind_vars()
 
   def forward(self, x):
     self.a1, self.a2 = forward(x, self.w)
@@ -97,6 +109,12 @@ class ClassicalNet:
     w2 = self.w[1] + np.identity(2) if RESNET else self.w[1]
 
     dw[0] = w2.T @ error * self.a1 * (1 - self.a1) @ x.T
+
+    if self.unbound:
+      self.w[0] -= lr * dw[0]
+      self.w[1] -= lr * dw[1]
+      self.bind_vars()
+      return
 
     # Only update weights for non-fixed parameters
     pos = parameter_positions[WEIGHTS_DIST]
@@ -120,29 +138,25 @@ class ClassicalNet:
         if WEIGHTS_DIST == 'skew':
           self.w[_pos[0]][1, 0] *= -1
 
+  def get_parameters(self):
+    pos = parameter_positions[WEIGHTS_DIST]
+    return self.w[pos[0][0]][pos[0][1], [pos[0][2]]], self.w[pos[1][0]][pos[1][1], [pos[1][2]]]
+
+  def bind_vars(self):
+    if WEIGHTS_DIST in test_bound_vars and TEST_NET:
+      for var in test_bound_vars[WEIGHTS_DIST]:
+        self.w[var[0]][var[1], var[2]] = var[3]
+
 class FunctionalNet:
   def __init__(self, i, j, scaled=False):
     self.i = i
     self.j = j
     self.scaled = scaled
-    self.w = self.form_shell_weights(i, j)
-    self._w = form_weights(i, j, [0]*6)
+    self.w = form_weights(i, j, [0]*6)
     self.derivs = None
 
-  def form_shell_weights(self, i, j):
-    return [
-      np.array([
-        [i, 0.],
-        [0., 0.]
-      ]),
-      np.array([
-        [j, 0.],
-        [0., 0.]
-      ])
-    ]
-
   def forward(self, x):
-    self.a1, self.a2 = forward(x, self._w, scaled=self.scaled)
+    self.a1, self.a2 = forward(x, self.w, scaled=self.scaled)
     return self.a2
 
   def backward(self, x, y, lr):
@@ -172,7 +186,7 @@ class FunctionalNet:
     dz1 = dw1(self.i) @ x
     da1 = self.a1 * (1 - self.a1) * dz1
     dz2 = 2 * da1
-    w2 = self._w[1] + np.identity(2) if RESNET else self._w[1]
+    w2 = self.w[1] + np.identity(2) if RESNET else self.w[1]
     da2 = w2 @ dz2
     d['i'] = error * da2
 
@@ -182,22 +196,19 @@ class FunctionalNet:
     self.j -= avg_dj * lr
     self.i -= avg_di * lr
 
-    self.w = self.form_shell_weights(self.i, self.j)
-    self._w = form_weights(self.i, self.j, [0]*6)
+    self.w = form_weights(self.i, self.j, [0]*6)
+
+  def get_parameters(self):
+    return self.i, self.j
 
 class RotationalNet(FunctionalNet):
   def __init__(self, i, j):
     super().__init__(i, j)
-    self.derivs = [
-      lambda a: np.array([
-        [-np.sin(a), -np.cos(a)],
-        [np.cos(a), -np.sin(a)]
-      ]),
-      lambda a: np.array([
-        [-np.sin(a), -np.cos(a)],
-        [np.cos(a), -np.sin(a)]
-      ]),
-    ]
+    d = lambda a: np.array([
+      [-np.sin(a), -np.cos(a)],
+      [np.cos(a), -np.sin(a)]
+    ])
+    self.derivs = [d, d]
 
 class ChebyshevNet(FunctionalNet):
   def __init__(self, i, j):
@@ -296,8 +307,7 @@ def train(epochs, m, X, Y, lr):
 
       _loss += loss(y_hat, y)
 
-      pos = parameter_positions[WEIGHTS_DIST]
-      path = (m.w[pos[0][0]][pos[0][1], [pos[0][2]]], m.w[pos[1][0]][pos[1][1], [pos[1][2]]], _loss)
+      path = (*m.get_parameters(), _loss)
 
       m.backward(x, y, lr)
 
@@ -334,6 +344,7 @@ def plot(i, j, fixed, Y, paths=None):
 
   plt.xlim([-AXIS_SIZE, AXIS_SIZE])
   plt.ylim([-AXIS_SIZE, AXIS_SIZE])
+  ax.axes.set_zlim3d([0, np.max(Z)])
   plt.xlabel('i')
   plt.ylabel('j')
   ax.set_zlabel('Loss')
@@ -395,7 +406,9 @@ if __name__ == "__main__":
   for _ in range(num_paths):
     rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
 
-    if Net:
+    if TEST_NET:
+      model = ClassicalNet([get_rand((2,2)) for _ in range(2)], unbound=True)
+    elif Net:
       model = Net(*rand_init)
     else:
       model = ClassicalNet(form_weights(*rand_init, fixed))
@@ -407,4 +420,4 @@ if __name__ == "__main__":
   # plot(rand[0], rand[1], fixed, Y)
   plot(rand[0], rand[1], fixed, Y, sgd_paths)
   # plot_losses(losses, epochs)
-  plot_lrs(lrs, epochs, plot_log=False)
+  # plot_lrs(lrs, epochs, plot_log=False)

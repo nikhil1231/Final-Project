@@ -6,8 +6,8 @@ import math
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'chebyshev'
-RESNET = True
+WEIGHTS_DIST = 'first'
+RESNET = False
 
 dimensions = {
   'first': [2, 5],
@@ -91,22 +91,24 @@ class ClassicalNet:
     # Only update weights for non-fixed parameters
     pos = parameter_positions[WEIGHTS_DIST]
     for _pos in pos:
+      if self.w[_pos[0]][_pos[1], _pos[2]] < -AXIS_SIZE or self.w[_pos[0]][_pos[1], _pos[2]] > AXIS_SIZE:
+        continue
+
       self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]]
-      self.w[_pos[0]][_pos[1], _pos[2]] = min(max(self.w[_pos[0]][_pos[1], _pos[2]], -AXIS_SIZE), AXIS_SIZE)
 
       # If the same parameter appears twice on the diagonal, fix them to be the same
       if _pos[1:3] == (0, 1):
         self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0]
 
         if WEIGHTS_DIST == 'skew':
-          self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
+          self.w[_pos[0]][1, 0] *= -1
 
         diff = self.w[_pos[0]][0, 1] - self.w[_pos[0]][1, 0]
         self.w[_pos[0]][0, 1] -= diff / 2
         self.w[_pos[0]][1, 0] += diff / 2
 
         if WEIGHTS_DIST == 'skew':
-          self.w[_pos[0]][1, 0] = -self.w[_pos[0]][1, 0]
+          self.w[_pos[0]][1, 0] *= -1
 
 class FunctionalNet:
   def __init__(self, i, j, scaled=False):
@@ -138,6 +140,9 @@ class FunctionalNet:
       print("ERROR: Derivatives not defined")
       return
 
+    if self.i < -AXIS_SIZE or self.i > AXIS_SIZE or self.j < -AXIS_SIZE or self.j > AXIS_SIZE:
+      return
+
     d = {
       'i': None,
       'j': None
@@ -166,9 +171,6 @@ class FunctionalNet:
 
     self.j -= avg_dj * lr
     self.i -= avg_di * lr
-
-    self.i = min(max(self.i, -AXIS_SIZE), AXIS_SIZE)
-    self.j = min(max(self.j, -AXIS_SIZE), AXIS_SIZE)
 
     self.w = self.form_shell_weights(self.i, self.j)
     self._w = form_weights(self.i, self.j, [0]*6)

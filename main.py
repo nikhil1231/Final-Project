@@ -6,8 +6,11 @@ import math
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
-WEIGHTS_DIST = 'first'
+WEIGHTS_DIST = 'chebyshev'
 RESNET = False
+
+ADD_NOISE = True
+NOISE_SD = 0.05
 
 dimensions = {
   'first': [2, 5],
@@ -42,7 +45,7 @@ seeds = {
   'equal': 5,
   'rotational': 1,
   'skew': 5,
-  'chebyshev': 5,
+  'chebyshev': 3, #0, 3
 }
 
 SCALED = scaled[WEIGHTS_DIST]
@@ -329,6 +332,10 @@ def get_rand(shape, dist=RAND_DIST):
   elif dist == 'uniform':
     return np.random.uniform(-RAND_SD, high=RAND_SD, size=shape)
 
+def add_noise(Y):
+  noise = np.random.normal(0, NOISE_SD, np.shape(Y))
+  return Y + noise
+
 nets = {
   'chebyshev': ChebyshevNet,
   'rotational': RotationalNet,
@@ -341,7 +348,9 @@ if __name__ == "__main__":
   X = get_rand((2, NUM_SAMPLES))
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
-  epochs = 100
+  Y_labels = add_noise(Y) if ADD_NOISE else Y
+
+  epochs = 1000
   lr = learning_rates[WEIGHTS_DIST]
 
   num_paths = 10
@@ -358,7 +367,7 @@ if __name__ == "__main__":
     else:
       model = ClassicalNet(form_weights(*rand_init, fixed))
 
-    path, _losses = train(epochs, model, X, Y, lr)
+    path, _losses = train(epochs, model, X, Y_labels, lr)
     sgd_paths.append(path)
     losses.append(_losses)
 

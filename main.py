@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 TEST_NET = True
+FORCE_MAP_SGD = True
 
 NUM_SAMPLES = 10
 BATCH_SIZE = 10
@@ -140,7 +141,7 @@ class ClassicalNet:
 
   def get_parameters(self):
     pos = parameter_positions[WEIGHTS_DIST]
-    return self.w[pos[0][0]][pos[0][1], [pos[0][2]]], self.w[pos[1][0]][pos[1][1], [pos[1][2]]]
+    return self.w[pos[0][0]][pos[0][1], pos[0][2]], self.w[pos[1][0]][pos[1][1], pos[1][2]]
 
   def bind_vars(self):
     if WEIGHTS_DIST in test_bound_vars and TEST_NET:
@@ -281,7 +282,7 @@ def anneal_lr(lr):
   LR_T_CUR += 1
   return LR_MIN + 0.5 * (LR_MAX - LR_MIN) * (1 + np.cos(np.pi * LR_T_CUR / LR_T))
 
-def train(epochs, m, X, Y, lr):
+def train(epochs, m, X, Y, lr, fixed):
   global LR_T, LR_T_CUR
   sgd_path = []
   losses = []
@@ -303,11 +304,15 @@ def train(epochs, m, X, Y, lr):
     lr = anneal_lr(lr)
 
     for x, y in zipped:
+      params = m.get_parameters()
+
       y_hat = m.forward(x)
+      if TEST_NET and FORCE_MAP_SGD:
+        y_hat = forward(x, form_weights(*params, fixed))[-1]
 
       _loss += loss(y_hat, y)
 
-      path = (*m.get_parameters(), _loss)
+      path = (*params, _loss)
 
       m.backward(x, y, lr)
 
@@ -413,7 +418,7 @@ if __name__ == "__main__":
     else:
       model = ClassicalNet(form_weights(*rand_init, fixed))
 
-    path, _losses, lrs = train(epochs, model, X, Y_labels, lr)
+    path, _losses, lrs = train(epochs, model, X, Y_labels, lr, fixed)
     sgd_paths.append(path)
     losses.append(_losses)
 

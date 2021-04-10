@@ -2,6 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
+PLOT_SURFACE = True
+PLOT_SGD = True
+PLOT_LOSSES = False
+PLOT_LR = False
+
 TEST_NET = True
 FORCE_MAP_SGD = True
 
@@ -372,6 +377,8 @@ def plot_lrs(lrs, epochs, plot_log=True):
   if plot_log:
     plt.yscale('log')
     plt.ylim(1e-4, LR_MAX * 1.1)
+  plt.xlabel('Epochs')
+  plt.ylabel('Learning rate (ηt)')
   plt.show()
 
 def get_rand(shape, dist=RAND_DIST):
@@ -408,21 +415,21 @@ if __name__ == "__main__":
 
   Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
 
-  for _ in range(num_paths):
-    rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
+  if PLOT_SGD:
+    for _ in range(num_paths):
+      rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
 
-    if TEST_NET:
-      model = ClassicalNet([get_rand((2,2)) for _ in range(2)], unbound=True)
-    elif Net:
-      model = Net(*rand_init)
-    else:
-      model = ClassicalNet(form_weights(*rand_init, fixed))
+      if TEST_NET:
+        model = ClassicalNet([get_rand((2,2)) for _ in range(2)], unbound=True)
+      elif Net:
+        model = Net(*rand_init)
+      else:
+        model = ClassicalNet(form_weights(*rand_init, fixed))
 
-    path, _losses, lrs = train(epochs, model, X, Y_labels, lr, fixed)
-    sgd_paths.append(path)
-    losses.append(_losses)
+      path, _losses, lrs = train(epochs, model, X, Y_labels, lr, fixed)
+      sgd_paths.append(path)
+      losses.append(_losses)
 
-  # plot(rand[0], rand[1], fixed, Y)
-  plot(rand[0], rand[1], fixed, Y, sgd_paths)
-  # plot_losses(losses, epochs)
-  # plot_lrs(lrs, epochs, plot_log=False)
+  if PLOT_SURFACE: plot(rand[0], rand[1], fixed, Y, sgd_paths if PLOT_SGD else None)
+  if PLOT_LOSSES: plot_losses(losses, epochs)
+  if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)

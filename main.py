@@ -7,7 +7,7 @@ PLOT_SGD = True
 PLOT_LOSSES = False
 PLOT_LR = False
 
-TEST_NET = True
+TEST_NET = False
 FORCE_MAP_SGD = True
 
 NUM_SAMPLES = 10
@@ -403,28 +403,27 @@ if __name__ == "__main__":
   X = get_rand((2, NUM_SAMPLES))
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
-  Y_labels = add_noise(Y) if ADD_NOISE else Y
-
   epochs = 1000
   lr = learning_rates[WEIGHTS_DIST]
 
   num_paths = 5
+  path_inits = (np.random.rand(num_paths, 2) * 2 - 1) * AXIS_SIZE * 0.9
   sgd_paths = []
   losses = []
   lrs = []
 
+  Y_labels = add_noise(Y) if ADD_NOISE else Y
+
   Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
 
   if PLOT_SGD:
-    for _ in range(num_paths):
-      rand_init = (np.random.rand(2) * 2 - 1) * AXIS_SIZE * 0.9
-
+    for path_init in path_inits:
       if TEST_NET:
         model = ClassicalNet([get_rand((2,2)) for _ in range(2)], unbound=True)
       elif Net:
-        model = Net(*rand_init)
+        model = Net(*path_init)
       else:
-        model = ClassicalNet(form_weights(*rand_init, fixed))
+        model = ClassicalNet(form_weights(*path_init, fixed))
 
       path, _losses, lrs = train(epochs, model, X, Y_labels, lr, fixed)
       sgd_paths.append(path)

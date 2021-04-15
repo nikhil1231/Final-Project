@@ -14,7 +14,8 @@ NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
-RESNET = False
+RESNET = True
+RESNET_LAST_LAYER_ACT = True
 
 ADD_NOISE = False
 NOISE_SD = 0.05
@@ -23,13 +24,14 @@ LR_MIN = 0.01
 LR_MAX = 0.1
 EPOCHS = 1000
 
+# Parameter range, sample range, axis range
 dimensions = {
-  'first': [2, 5],
-  'second': [3, 15],
-  'equal': [1, 1],
-  'rotational': [np.pi, np.pi],
-  'skew': [1, 1],
-  'chebyshev': [0.9, 0.9],
+  'first': [2, 2, 5],
+  'second': [3, 3, 15],
+  'equal': [1, 1, 1],
+  'rotational': [1, np.pi, np.pi],
+  'skew': [1, 1, 1],
+  'chebyshev': [0.9, 0.9, 0.9],
 }
 
 scaled = {
@@ -47,15 +49,16 @@ seeds = {
   'equal': 5,
   'rotational': 1,
   'skew': 5,
-  'chebyshev': 3, #0, 3
+  'chebyshev': 6, #0, 3
 }
 
 SCALED = scaled[WEIGHTS_DIST]
 np.random.seed(seeds[WEIGHTS_DIST])
 
-RAND_SD = dimensions[WEIGHTS_DIST][0]
+PARAMETER_SD = dimensions[WEIGHTS_DIST][0]
+SAMPLE_SD = dimensions[WEIGHTS_DIST][1]
 RAND_DIST = 'uniform'
-AXIS_SIZE = dimensions[WEIGHTS_DIST][1]
+AXIS_SIZE = dimensions[WEIGHTS_DIST][2]
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
@@ -256,10 +259,18 @@ def form_weights(i, j, fixed, dist=WEIGHTS_DIST):
   return list(map(lambda x: diag(x), weights))
 
 def forward(x, w, scaled=SCALED):
-  i = np.identity(2) if RESNET else matrix([0]*4)
-  a1 = sigmoid((w[0] + i) @ x)
-  z1 = (2*a1-1) if scaled else a1
-  a2 = (w[1] + i) @ z1
+  if RESNET:
+    a1 = sigmoid(w[0] @ x) + x
+    z1 = (a1 * 2/3) - 1/3 if scaled else a1
+    if RESNET_LAST_LAYER_ACT:
+      a2 = sigmoid(w[1] @ z1) + z1
+      a2 = (a2 * 2/3) - 1/3 if scaled else a2
+    else:
+      a2 = w[1] @ z1 + z1
+  else:
+    a1 = sigmoid(w[0] @ x)
+    z1 = (2*a1-1) if scaled else a1
+    a2 = w[1] @ z1
   return a1, a2
 
 def loss(y_hat, Y):
@@ -361,11 +372,11 @@ def plot_lrs(lrs, epochs, plot_log=True):
   plt.ylabel('Learning rate (ηt)')
   plt.show()
 
-def get_rand(shape, dist=RAND_DIST):
+def get_rand(shape, sd, dist=RAND_DIST):
   if dist == 'normal':
-    return np.random.normal(0, RAND_SD, shape)
+    return np.random.normal(0, sd, shape)
   elif dist == 'uniform':
-    return np.random.uniform(-RAND_SD, high=RAND_SD, size=shape)
+    return np.random.uniform(-sd, high=sd, size=shape)
 
 def add_noise(Y):
   noise = np.random.normal(0, NOISE_SD, np.shape(Y))
@@ -377,11 +388,11 @@ nets = {
 }
 
 if __name__ == "__main__":
-  rand = get_rand(12, 'uniform')
-  fixed = rand[2:]
+  parameters = get_rand(2, PARAMETER_SD)
+  fixed = get_rand(6, PARAMETER_SD, 'uniform')
 
-  X = get_rand((2, NUM_SAMPLES))
-  Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
+  X = get_rand((2, NUM_SAMPLES), SAMPLE_SD)
+  Y = forward(X, form_weights(*parameters, fixed))[-1]
 
   num_paths = 5
   path_inits = (np.random.rand(num_paths, 2) * 2 - 1) * AXIS_SIZE * 0.9
@@ -396,7 +407,7 @@ if __name__ == "__main__":
   if PLOT_SGD:
     for path_init in path_inits:
       if TEST_NET:
-        model = ClassicalNet([get_rand((2,2)) for _ in range(2)], unbound=True)
+        model = ClassicalNet([get_rand((2,2), AXIS_SIZE) for _ in range(2)], unbound=True)
       elif Net:
         model = Net(*path_init)
       else:
@@ -406,6 +417,6 @@ if __name__ == "__main__":
       sgd_paths.append(path)
       losses.append(_losses)
 
-  if PLOT_SURFACE: plot(rand[0], rand[1], fixed, Y_labels, sgd_paths if PLOT_SGD else None)
+  if PLOT_SURFACE: plot(*parameters, fixed, Y_labels, sgd_paths if PLOT_SGD else None)
   if PLOT_LOSSES: plot_losses(losses, EPOCHS)
   if PLOT_LR: plot_lrs(lrs, EPOCHS, plot_log=False)

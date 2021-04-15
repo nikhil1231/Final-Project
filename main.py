@@ -12,19 +12,22 @@ PLOT_LR = False
 TEST_NET = False
 FORCE_MAP_SGD = True
 
+NUM_RUNS = 3
 NUM_SAMPLES = 1000
-BATCH_SIZE = 10
+BATCH_SIZE = 1
 
 WEIGHTS_DIST = 'chebyshev'
 RESNET = False
-RESNET_LAST_ACTIVATE = True
+RESNET_LAST_ACTIVATE = False
 
 ADD_NOISE = False
 NOISE_SD = 0.05
 
-LR_MIN = 0.0001
-LR_MAX = 0.001
-EPOCHS = 1000
+LR_MIN = 0.001
+LR_MAX = 0.01
+EPOCHS = 10_000
+
+COLORS = ['r', 'b', 'g']
 
 # Parameter range, sample range, axis range
 dimension_defaults = {
@@ -34,6 +37,15 @@ dimension_defaults = {
   'rotational': [1, np.pi, 5],
   'skew': [1, 1, 1],
   'chebyshev': [0.9, 0.9, 0.9],
+}
+
+starting_positions = {
+  'first': [-0.5, -0.6],
+  'second': [-0.5, -0.6],
+  'equal': [-0.5, -0.6],
+  'rotational': [-0.5, -0.6],
+  'skew': [-0.5, -0.6],
+  'chebyshev': [-0.5, -0.6],
 }
 
 scaled_defaults = {
@@ -306,33 +318,28 @@ def train(epochs, m, X, Y, fixed,
   lrs = []
 
   for epoch in range(epochs):
-    xs = np.split(X, num_samples / batch_size, axis=1)
-    ys = np.split(Y, num_samples / batch_size, axis=1)
+    idx = np.random.choice(np.arange(num_samples), batch_size, replace=False)
 
-    zipped = list(zip(xs, ys))
-
-    np.random.shuffle(zipped)
-
-    _loss = 0
+    batchx = X[:,idx]
+    batchy = Y[:,idx]
 
     lr = anneal_lr(epoch, lr_min, lr_max, max_epochs)
 
-    for x, y in zipped:
-      params = m.get_parameters()
+    params = m.get_parameters()
 
-      y_hat = m.forward(x)
-      if test_net and force_map_sgd:
-        y_hat = forward(x, form_weights(*params, fixed), scaled, resnet, resnet_last_active)[-1]
+    m.forward(batchx)
+    if test_net and force_map_sgd:
+      forward(batchx, form_weights(*params, fixed), scaled, resnet, resnet_last_active)[-1]
 
-      _loss += loss(y_hat, y)
+    # Update network, caclulate loss for plotting
+    m.backward(batchx, batchy, lr)
 
-      path = (*params, _loss)
+    new_params = m.get_parameters()
+    new_loss = loss(m.forward(X), Y)
 
-      m.backward(x, y, lr)
-
-    losses.append(_loss)
-    lrs.append(lr)
+    path = (*new_params, new_loss)
     sgd_path.append(path)
+    lrs.append(new_loss)
 
   return sgd_path, losses, lrs
 
@@ -357,9 +364,9 @@ def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size,
   ax.plot_surface(axis_x, axis_y, Z, cmap=cm.terrain, linewidth=0, alpha=0.7)
   ax.scatter(i, j, 0, marker='x', s=150, color='black')
   if paths:
-    for path in paths:
-      ax.plot(*zip(*path), color='red')
-      ax.scatter(*path[-1], marker='o', color='red')
+    for i, path in enumerate(paths):
+      ax.plot(*zip(*path), color=COLORS[i])
+      ax.scatter(*path[-1], marker='o', color=COLORS[i])
 
   plt.xlim([-axis_size, axis_size])
   plt.ylim([-axis_size, axis_size])
@@ -381,7 +388,7 @@ def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size,
 def get_file_path(weights_dist, epochs, test_net, num_samples, batch_size, parameter_sd, sample_sd,
                   axis_size, test_sd, scaled, resnet, resnet_last_activate, lr_min, lr_max,
                   force_map_sgd, noise_sd, rand_dist):
-  return f"figs/{weights_dist}_E{epochs}_T{test_net}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
+  return f"figs/{weights_dist}_SGD{PLOT_SGD}_E{epochs}_T{test_net}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
 _SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{resnet_last_activate}\
 _LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{noise_sd}_RD{rand_dist}.png"
 
@@ -440,6 +447,7 @@ def run(weights_dist=WEIGHTS_DIST,
         force_map_sgd=FORCE_MAP_SGD,
         noise_sd=NOISE_SD,
         rand_dist=RAND_DIST,
+        sgd_same_point=False,
         save_plot=False):
 
   if parameter_sd is None:
@@ -465,8 +473,7 @@ def run(weights_dist=WEIGHTS_DIST,
   X = get_rand((2, num_samples), sample_sd, rand_dist)
   Y = forward(X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
 
-  num_paths = 5
-  path_inits = (np.random.rand(num_paths, 2) * 2 - 1) * axis_size * 0.9
+  path_inits = (np.random.rand(NUM_RUNS, 2) * 2 - 1) * axis_size * 0.9
   sgd_paths = []
   losses = []
   lrs = []
@@ -475,6 +482,8 @@ def run(weights_dist=WEIGHTS_DIST,
 
   if PLOT_SGD:
     for path_init in path_inits:
+      if sgd_same_point:
+        path_init = starting_positions[weights_dist] # Start all from same point
       if TEST_NET:
         model = ClassicalNet([get_rand((2,2), test_sd, rand_dist) for _ in range(2)], weights_dist, test_net, scaled, resnet, resnet_last_activate, axis_size, unbound=True)
       elif weights_dist in nets:

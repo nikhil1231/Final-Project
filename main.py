@@ -14,7 +14,7 @@ NUM_SAMPLES = 10
 BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
-RESNET = True
+RESNET = False
 RESNET_LAST_LAYER_ACT = True
 
 ADD_NOISE = False
@@ -29,7 +29,7 @@ dimensions = {
   'first': [2, 2, 5],
   'second': [3, 3, 15],
   'equal': [1, 1, 1],
-  'rotational': [1, np.pi, np.pi],
+  'rotational': [1, np.pi, 5],
   'skew': [1, 1, 1],
   'chebyshev': [0.9, 0.9, 0.9],
 }
@@ -52,6 +52,15 @@ seeds = {
   'chebyshev': 6, #0, 3
 }
 
+view_angles = {
+  'first': [50, 60],
+  'second': [50, 130],
+  'equal': [70, 210],
+  'rotational': [70, 210],
+  'skew': [70, 210],
+  'chebyshev': [60, 30],
+}
+
 SCALED = scaled[WEIGHTS_DIST]
 np.random.seed(seeds[WEIGHTS_DIST])
 
@@ -59,6 +68,9 @@ PARAMETER_SD = dimensions[WEIGHTS_DIST][0]
 SAMPLE_SD = dimensions[WEIGHTS_DIST][1]
 RAND_DIST = 'uniform'
 AXIS_SIZE = dimensions[WEIGHTS_DIST][2]
+
+ELEVATION = view_angles[WEIGHTS_DIST][0]
+AZIMUTH = view_angles[WEIGHTS_DIST][1]
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
@@ -346,6 +358,7 @@ def plot(i, j, fixed, Y, paths=None):
   plt.xlabel('i')
   plt.ylabel('j')
   ax.set_zlabel('Loss')
+  ax.view_init(elev=ELEVATION, azim=AZIMUTH)
   plt.show()
 
 
@@ -402,14 +415,12 @@ if __name__ == "__main__":
 
   Y_labels = add_noise(Y) if ADD_NOISE else Y
 
-  Net = None if WEIGHTS_DIST not in nets else nets[WEIGHTS_DIST]
-
   if PLOT_SGD:
     for path_init in path_inits:
       if TEST_NET:
         model = ClassicalNet([get_rand((2,2), AXIS_SIZE) for _ in range(2)], unbound=True)
-      elif Net:
-        model = Net(*path_init)
+      elif WEIGHTS_DIST in nets:
+        model = nets[WEIGHTS_DIST](*path_init)
       else:
         model = ClassicalNet(form_weights(*path_init, fixed))
 

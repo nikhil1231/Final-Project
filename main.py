@@ -10,7 +10,7 @@ PLOT_LOSSES = False
 PLOT_LR = False
 
 TEST_NET = False
-FORCE_MAP_SGD = True
+FORCE_MAP_SGD = False
 
 NUM_RUNS = 3
 NUM_SAMPLES = 1000
@@ -308,7 +308,7 @@ def loss(y_hat, Y):
 def anneal_lr(epoch, lr_min, lr_max, max_epochs):
   return lr_min + 0.5 * (lr_max - lr_min) * (1 + np.cos(np.pi * epoch / max_epochs))
 
-def train(epochs, m, X, Y, fixed,
+def train(epochs, m, X, Y, fixed, dist,
           lr_min, lr_max, max_epochs,
           num_samples, batch_size,
           test_net, force_map_sgd,
@@ -325,17 +325,18 @@ def train(epochs, m, X, Y, fixed,
 
     lr = anneal_lr(epoch, lr_min, lr_max, max_epochs)
 
-    params = m.get_parameters()
-
     m.forward(batchx)
-    if test_net and force_map_sgd:
-      forward(batchx, form_weights(*params, fixed), scaled, resnet, resnet_last_active)[-1]
 
     # Update network, caclulate loss for plotting
     m.backward(batchx, batchy, lr)
 
     new_params = m.get_parameters()
-    new_loss = loss(m.forward(X), Y)
+
+    if test_net and force_map_sgd:
+      y_hat = forward(X, form_weights(*new_params, fixed, dist), scaled, resnet, resnet_last_active)[-1]
+    else:
+      y_hat = m.forward(X)
+    new_loss = loss(y_hat, Y)
 
     path = (*new_params, new_loss)
     sgd_path.append(path)
@@ -456,6 +457,8 @@ def run(weights_dist=WEIGHTS_DIST,
     sample_sd = dimension_defaults[weights_dist][1]
   if axis_size is None:
     axis_size = dimension_defaults[weights_dist][2]
+  if test_sd is None:
+    test_sd = axis_size
   if scaled is None:
     scaled = scaled_defaults[weights_dist]
 
@@ -484,14 +487,14 @@ def run(weights_dist=WEIGHTS_DIST,
     for path_init in path_inits:
       if sgd_same_point:
         path_init = starting_positions[weights_dist] # Start all from same point
-      if TEST_NET:
+      if test_net:
         model = ClassicalNet([get_rand((2,2), test_sd, rand_dist) for _ in range(2)], weights_dist, test_net, scaled, resnet, resnet_last_activate, axis_size, unbound=True)
       elif weights_dist in nets:
         model = nets[weights_dist](*path_init, weights_dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size)
       else:
         model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, scaled, resnet, resnet_last_activate, axis_size)
 
-      path, _losses, lrs = train(epochs, model, X, Y, fixed,
+      path, _losses, lrs = train(epochs, model, X, Y, fixed, weights_dist,
                                 lr_min, lr_max, epochs,
                                 num_samples, batch_size,
                                 test_net, force_map_sgd,
@@ -512,7 +515,8 @@ def grid_search(**kwargs):
     run(**dict(zip(kwargs.keys(), e)), save_plot=True)
 
 if __name__ == '__main__':
-  grid_search(
-    weights_dist=['first', 'chebyshev', 'rotational'],
-    resnet=[True, False],
-  )
+  # grid_search(
+  #   weights_dist=['first', 'chebyshev', 'rotational'],
+  #   resnet=[True, False],
+  # )
+  run(weights_dist='first', test_net=True, batch_size=10, num_samples=100)

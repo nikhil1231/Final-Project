@@ -21,11 +21,7 @@ NOISE_SD = 0.05
 
 LR_MIN = 0.01
 LR_MAX = 0.1
-LR_T0 = 100
-LR_T_MULT = 2
-
-LR_T = LR_T0
-LR_T_CUR = 0
+EPOCHS = 1000
 
 dimensions = {
   'first': [2, 5],
@@ -34,15 +30,6 @@ dimensions = {
   'rotational': [np.pi, np.pi],
   'skew': [1, 1],
   'chebyshev': [0.9, 0.9],
-}
-
-learning_rates = {
-  'first': 0.5,
-  'second': 0.1,
-  'equal': 0.1,
-  'rotational': 0.1,
-  'skew': 0.1,
-  'chebyshev': 0.1,
 }
 
 scaled = {
@@ -278,25 +265,15 @@ def forward(x, w, scaled=SCALED):
 def loss(y_hat, Y):
   return sum(((y_hat - Y) ** 2).flatten()) / 2
 
-def anneal_lr(lr):
-  global LR_T, LR_T_CUR
-  if LR_T_CUR == LR_T:
-    # Reset
-    LR_T_CUR = 0
-    LR_T *= LR_T_MULT
-  LR_T_CUR += 1
-  return LR_MIN + 0.5 * (LR_MAX - LR_MIN) * (1 + np.cos(np.pi * LR_T_CUR / LR_T))
+def anneal_lr(epoch):
+  return LR_MIN + 0.5 * (LR_MAX - LR_MIN) * (1 + np.cos(np.pi * epoch / EPOCHS))
 
-def train(epochs, m, X, Y, lr, fixed):
-  global LR_T, LR_T_CUR
+def train(epochs, m, X, Y, fixed):
   sgd_path = []
   losses = []
   lrs = []
 
-  LR_T_CUR = 0
-  LR_T = LR_T0
-
-  for _ in range(epochs):
+  for epoch in range(epochs):
     xs = np.split(X, NUM_SAMPLES / BATCH_SIZE, axis=1)
     ys = np.split(Y, NUM_SAMPLES / BATCH_SIZE, axis=1)
 
@@ -306,7 +283,7 @@ def train(epochs, m, X, Y, lr, fixed):
 
     _loss = 0
 
-    lr = anneal_lr(lr)
+    lr = anneal_lr(epoch)
 
     for x, y in zipped:
       params = m.get_parameters()
@@ -369,6 +346,9 @@ def plot_losses(losses, epochs):
   for loss_plt in losses:
     plt.plot(epoch_axis, loss_plt)
   # plt.yscale('log')
+  plt.ylim(bottom=-0.5)
+  plt.xlabel('Epochs')
+  plt.ylabel('Loss')
   plt.show()
 
 def plot_lrs(lrs, epochs, plot_log=True):
@@ -403,9 +383,6 @@ if __name__ == "__main__":
   X = get_rand((2, NUM_SAMPLES))
   Y = forward(X, form_weights(rand[0], rand[1], fixed))[-1]
 
-  epochs = 1000
-  lr = learning_rates[WEIGHTS_DIST]
-
   num_paths = 5
   path_inits = (np.random.rand(num_paths, 2) * 2 - 1) * AXIS_SIZE * 0.9
   sgd_paths = []
@@ -425,10 +402,10 @@ if __name__ == "__main__":
       else:
         model = ClassicalNet(form_weights(*path_init, fixed))
 
-      path, _losses, lrs = train(epochs, model, X, Y_labels, lr, fixed)
+      path, _losses, lrs = train(EPOCHS, model, X, Y_labels, fixed)
       sgd_paths.append(path)
       losses.append(_losses)
 
-  if PLOT_SURFACE: plot(rand[0], rand[1], fixed, Y, sgd_paths if PLOT_SGD else None)
-  if PLOT_LOSSES: plot_losses(losses, epochs)
-  if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
+  if PLOT_SURFACE: plot(rand[0], rand[1], fixed, Y_labels, sgd_paths if PLOT_SGD else None)
+  if PLOT_LOSSES: plot_losses(losses, EPOCHS)
+  if PLOT_LR: plot_lrs(lrs, EPOCHS, plot_log=False)

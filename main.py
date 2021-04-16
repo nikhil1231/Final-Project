@@ -5,10 +5,11 @@ import itertools, functools, operator
 from os.path import exists
 
 PLOT_SURFACE = True
-PLOT_2D = True
+PLOT_2D = False
 PLOT_SGD = True
 PLOT_LOSSES = False
 PLOT_LR = False
+PLOT_SCATTER = True
 
 TEST_NET = False
 FORCE_MAP_SGD = False
@@ -25,14 +26,14 @@ ADD_NOISE = False
 NOISE_SD = 0.05
 
 LR_MIN = 0.001
-LR_MAX = 0.01
+LR_MAX = 0.03
 EPOCHS = 10_000
 
 COLORS = ['r', 'b', 'g']
 
 # Parameter range, sample range, axis range
 dimension_defaults = {
-  'first': [2, 2, 5],
+  'first': [1, 1, 1],
   'second': [1, 1, 5],
   'equal': [1, 1, 1],
   'rotational': [1, np.pi, 5],
@@ -423,6 +424,10 @@ def get_file_path(weights_dist, epochs, test_net, num_samples, batch_size, param
 _SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{resnet_last_activate}\
 _LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}"
 
+def plot_scatter(points, y=False):
+  plt.scatter(*zip(points), color='r' if y else 'b')
+  plt.show()
+
 '''
   Plot chart of loss over epochs
 '''
@@ -512,6 +517,10 @@ def run(weights_dist=WEIGHTS_DIST,
   losses = []
   lrs = []
 
+  if PLOT_SCATTER:
+    plot_scatter(X)
+    plot_scatter(Y, True)
+
   Y_labels = noise(Y, noise_sd) if add_noise else Y
 
   if PLOT_SGD:
@@ -534,6 +543,11 @@ def run(weights_dist=WEIGHTS_DIST,
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y_labels, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, epochs)
   if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
+
+  if test_net and PLOT_SCATTER:
+    # Use new parameters to generate new labels
+    new_Y = model.forward(X)
+    plot_scatter(new_Y, True)
 
 def grid_search(**kwargs):
   i = 0

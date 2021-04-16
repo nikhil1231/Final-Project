@@ -93,22 +93,31 @@ Values in the weight distribution to be frozen during unbound SGD.
 In the form (matrix_i, row_i, col_i, value)
 '''
 test_bound_vars = {
-  'chebyshev': [(0, 0, 0, 1), (1, 0, 0, 1)],
+  'first': [
+    [[1, 1], [1, 0]],
+    [[0, 0], [0, 0]],
+  ],
+  'chebyshev': [
+    [[0, 1], [1, 1]],
+    [[0, 1], [1, 1]],
+  ],
 }
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
 class ClassicalNet:
-  def __init__(self, w, dist, test_net, scaled, resnet, resnet_last_activate, axis_size, unbound=False):
+  def __init__(self, w, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
     self.w = w
     self.dist = dist
     self.test_net = test_net
     self.scaled = scaled
     self.resnet = resnet
     self.resnet_last_activate = resnet_last_activate
+    self.parameter_sd = parameter_sd
     self.axis_size = axis_size
-    self.unbound = unbound
-    self.bind_vars()
+
+    if test_net:
+      self.randomise_free_vars()
 
   def forward(self, x):
     self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.resnet_last_activate)
@@ -129,10 +138,11 @@ class ClassicalNet:
 
     dw[0] = w2.T @ error * self.a1 * (1 - self.a1) @ x.T
 
-    if self.unbound:
-      self.w[0] -= lr * dw[0]
-      self.w[1] -= lr * dw[1]
-      self.bind_vars()
+    if self.test_net:
+      positions = test_bound_vars[self.dist]
+      for e in itertools.product(*([[0, 1]] * 3)):
+        if positions[e[0]][e[1]][e[2]]:
+          self.w[e[0]][e[1], e[2]] -= lr * dw[e[0]][e[1], e[2]]
       return
 
     # Only update weights for non-fixed parameters
@@ -161,10 +171,11 @@ class ClassicalNet:
     pos = parameter_positions[self.dist]
     return self.w[pos[0][0]][pos[0][1], pos[0][2]], self.w[pos[1][0]][pos[1][1], pos[1][2]]
 
-  def bind_vars(self):
-    if self.dist in test_bound_vars and self.test_net:
-      for var in test_bound_vars[self.dist]:
-        self.w[var[0]][var[1], var[2]] = var[3]
+  def randomise_free_vars(self):
+    positions = test_bound_vars[self.dist]
+    for e in itertools.product(*([[0, 1]] * 3)):
+      if positions[e[0]][e[1]][e[2]]:
+        self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
 
 class FunctionalNet:
   def __init__(self, i, j, dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size):
@@ -476,7 +487,7 @@ def run(weights_dist=WEIGHTS_DIST,
   X = get_rand((2, num_samples), sample_sd, rand_dist)
   Y = forward(X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
 
-  path_inits = (np.random.rand(NUM_RUNS, 2) * 2 - 1) * axis_size * 0.9
+  path_inits = get_rand((NUM_RUNS, 2), axis_size * 0.9, 'uniform')
   sgd_paths = []
   losses = []
   lrs = []
@@ -487,12 +498,10 @@ def run(weights_dist=WEIGHTS_DIST,
     for path_init in path_inits:
       if sgd_same_point:
         path_init = starting_positions[weights_dist] # Start all from same point
-      if test_net:
-        model = ClassicalNet([get_rand((2,2), test_sd, rand_dist) for _ in range(2)], weights_dist, test_net, scaled, resnet, resnet_last_activate, axis_size, unbound=True)
-      elif weights_dist in nets:
-        model = nets[weights_dist](*path_init, weights_dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size)
+      if test_net or weights_dist not in nets:
+        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
       else:
-        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, scaled, resnet, resnet_last_activate, axis_size)
+        model = nets[weights_dist](*path_init, weights_dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size)
 
       path, _losses, lrs = train(epochs, model, X, Y, fixed, weights_dist,
                                 lr_min, lr_max, epochs,
@@ -519,4 +528,8 @@ if __name__ == '__main__':
   #   weights_dist=['first', 'chebyshev', 'rotational'],
   #   resnet=[True, False],
   # )
-  run(weights_dist='first', test_net=True, batch_size=10, num_samples=100)
+  run(weights_dist='chebyshev',
+      epochs=10_000,
+      batch_size=1,
+      test_net=True,
+      num_samples=1000)

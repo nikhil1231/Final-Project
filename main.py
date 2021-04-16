@@ -399,10 +399,10 @@ def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size,
 
 def get_file_path(weights_dist, epochs, test_net, num_samples, batch_size, parameter_sd, sample_sd,
                   axis_size, test_sd, scaled, resnet, resnet_last_activate, lr_min, lr_max,
-                  force_map_sgd, noise_sd, rand_dist):
+                  force_map_sgd, add_noise, noise_sd, rand_dist):
   return f"figs/{weights_dist}_SGD{PLOT_SGD}_E{epochs}_T{test_net}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
 _SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{resnet_last_activate}\
-_LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{noise_sd}_RD{rand_dist}.png"
+_LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}.png"
 
 '''
   Plot chart of loss over epochs
@@ -433,9 +433,9 @@ def get_rand(shape, sd, dist):
   elif dist == 'uniform':
     return np.random.uniform(-sd, high=sd, size=shape)
 
-def add_noise(Y, noise_sd):
-  noise = np.random.normal(0, noise_sd, np.shape(Y))
-  return Y + noise
+def noise(Y, noise_sd):
+  n = np.random.normal(0, noise_sd, np.shape(Y))
+  return Y + n
 
 nets = {
   'chebyshev': ChebyshevNet,
@@ -457,6 +457,7 @@ def run(weights_dist=WEIGHTS_DIST,
         lr_min=LR_MIN,
         lr_max=LR_MAX,
         force_map_sgd=FORCE_MAP_SGD,
+        add_noise=ADD_NOISE,
         noise_sd=NOISE_SD,
         rand_dist=RAND_DIST,
         sgd_same_point=False,
@@ -475,7 +476,7 @@ def run(weights_dist=WEIGHTS_DIST,
 
   fn = get_file_path(weights_dist, epochs, test_net, num_samples, batch_size, parameter_sd, sample_sd,
                     axis_size, test_sd, scaled, resnet, resnet_last_activate, lr_min, lr_max,
-                    force_map_sgd, noise_sd, rand_dist)
+                    force_map_sgd, add_noise, noise_sd, rand_dist)
   if save_plot and exists(fn):
     return
 
@@ -492,7 +493,7 @@ def run(weights_dist=WEIGHTS_DIST,
   losses = []
   lrs = []
 
-  Y_labels = add_noise(Y, noise_sd) if ADD_NOISE else Y
+  Y_labels = noise(Y, noise_sd) if add_noise else Y
 
   if PLOT_SGD:
     for path_init in path_inits:
@@ -524,12 +525,12 @@ def grid_search(**kwargs):
     run(**dict(zip(kwargs.keys(), e)), save_plot=True)
 
 if __name__ == '__main__':
-  # grid_search(
-  #   weights_dist=['first', 'chebyshev', 'rotational'],
-  #   resnet=[True, False],
-  # )
-  run(weights_dist='chebyshev',
-      epochs=10_000,
-      batch_size=1,
-      test_net=True,
-      num_samples=1000)
+  grid_search(
+    weights_dist=['chebyshev'],
+    add_noise=[True, False],
+  )
+  # run(weights_dist='chebyshev',
+  #     epochs=10_000,
+  #     batch_size=1,
+  #     test_net=True,
+  #     num_samples=1000)

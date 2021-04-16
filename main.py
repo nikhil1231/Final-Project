@@ -5,6 +5,7 @@ import itertools, functools, operator
 from os.path import exists
 
 PLOT_SURFACE = True
+PLOT_2D = True
 PLOT_SGD = True
 PLOT_LOSSES = False
 PLOT_LR = False
@@ -365,12 +366,13 @@ def create_landscape(axis, fixed, X, Y, dist, scaled, resnet, resnet_last_active
 '''
   Plot 3D contours of the loss landscape
 '''
-def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size, save, filepath, paths=None):
+def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size, save, filepath, paths=None, plot_2d=False):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
   axis = np.arange(-axis_size, axis_size, axis_size/100)
-  Z = np.array(create_landscape(axis, fixed, X, Y, dist, scaled, resnet, resnet_last_active))
+  landscape = create_landscape(axis, fixed, X, Y, dist, scaled, resnet, resnet_last_active)
+  Z = np.array(landscape)
   axis_x, axis_y = np.meshgrid(axis, axis)
 
   ax.plot_surface(axis_x, axis_y, Z, cmap=cm.terrain, linewidth=0, alpha=0.7)
@@ -393,16 +395,33 @@ def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size,
   ax.view_init(elev=elevation, azim=azimuth)
 
   if save:
-    plt.savefig(filepath)
+    plt.savefig(f"{filepath}.png")
   else:
     plt.show()
+
+  if plot_2d:
+    plt.contour(axis, axis, landscape, levels=20, cmap=cm.terrain)
+    if paths:
+      for i, path in enumerate(paths):
+        params = list(zip(*path))
+        xs, ys = params[0], params[1]
+        plt.plot(xs, ys, color=COLORS[i])
+        plt.scatter(xs[-1], ys[-1], color=COLORS[i], marker='o')
+
+    plt.xlim([-axis_size, axis_size])
+    plt.ylim([-axis_size, axis_size])
+
+    if save:
+      plt.savefig(f"{filepath}_2D.png")
+    else:
+      plt.show()
 
 def get_file_path(weights_dist, epochs, test_net, num_samples, batch_size, parameter_sd, sample_sd,
                   axis_size, test_sd, scaled, resnet, resnet_last_activate, lr_min, lr_max,
                   force_map_sgd, add_noise, noise_sd, rand_dist):
   return f"figs/{weights_dist}_SGD{PLOT_SGD}_E{epochs}_T{test_net}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
 _SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{resnet_last_activate}\
-_LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}.png"
+_LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}"
 
 '''
   Plot chart of loss over epochs
@@ -477,7 +496,7 @@ def run(weights_dist=WEIGHTS_DIST,
   fn = get_file_path(weights_dist, epochs, test_net, num_samples, batch_size, parameter_sd, sample_sd,
                     axis_size, test_sd, scaled, resnet, resnet_last_activate, lr_min, lr_max,
                     force_map_sgd, add_noise, noise_sd, rand_dist)
-  if save_plot and exists(fn):
+  if save_plot and exists("{fn}.png"):
     return
 
   np.random.seed(seeds[weights_dist])
@@ -512,7 +531,7 @@ def run(weights_dist=WEIGHTS_DIST,
       sgd_paths.append(path)
       losses.append(_losses)
 
-  if PLOT_SURFACE: plot(*parameters, fixed, X, Y_labels, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None)
+  if PLOT_SURFACE: plot(*parameters, fixed, X, Y_labels, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, epochs)
   if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
 
@@ -525,12 +544,11 @@ def grid_search(**kwargs):
     run(**dict(zip(kwargs.keys(), e)), save_plot=True)
 
 if __name__ == '__main__':
-  grid_search(
-    weights_dist=['chebyshev'],
-    add_noise=[True, False],
-  )
-  # run(weights_dist='chebyshev',
-  #     epochs=10_000,
-  #     batch_size=1,
-  #     test_net=True,
-  #     num_samples=1000)
+  # grid_search(
+  #   weights_dist=['chebyshev'],
+  #   add_noise=[True, False],
+  # )
+  run(weights_dist='first',
+      add_noise=True,
+      test_net=True,
+      num_samples=1000)

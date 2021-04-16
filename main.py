@@ -5,11 +5,11 @@ import itertools, functools, operator
 from os.path import exists
 
 PLOT_SURFACE = True
-PLOT_2D = False
+PLOT_2D = True
 PLOT_SGD = True
 PLOT_LOSSES = False
 PLOT_LR = False
-PLOT_SCATTER = True
+PLOT_SCATTER = False
 
 TEST_NET = False
 FORCE_MAP_SGD = False
@@ -139,6 +139,9 @@ class ClassicalNet:
     w2 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
 
     dw[0] = w2.T @ error * self.a1 * (1 - self.a1) @ x.T
+
+    dw[0] /= len(x[0])
+    dw[1] /= len(x[0])
 
     if self.test_net:
       positions = test_bound_vars[self.dist]
@@ -353,7 +356,8 @@ def train(epochs, m, X, Y, fixed, dist,
 
     path = (*new_params, new_loss)
     sgd_path.append(path)
-    lrs.append(new_loss)
+    losses.append(new_loss)
+    lrs.append(lr)
 
   return sgd_path, losses, lrs
 
@@ -544,10 +548,21 @@ def run(weights_dist=WEIGHTS_DIST,
   if PLOT_LOSSES: plot_losses(losses, epochs)
   if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
 
-  if test_net and PLOT_SCATTER:
-    # Use new parameters to generate new labels
-    new_Y = model.forward(X)
-    plot_scatter(new_Y, True)
+  if test_net:
+    if PLOT_SCATTER:
+      # Use new parameters to generate new labels
+      free_Y = model.forward(X)
+      plot_scatter(free_Y, True)
+
+    new_X = get_rand((2, num_samples), sample_sd, rand_dist)
+    new_Y = forward(new_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
+
+    y_hat = model.forward(new_X)
+
+    loss_ = loss(y_hat, new_Y)
+
+    print(loss_)
+
 
 def grid_search(**kwargs):
   i = 0
@@ -562,7 +577,7 @@ if __name__ == '__main__':
   #   weights_dist=['chebyshev'],
   #   add_noise=[True, False],
   # )
-  run(weights_dist='first',
+  run(weights_dist='chebyshev',
       add_noise=True,
       test_net=True,
       num_samples=1000)

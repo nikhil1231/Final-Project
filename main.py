@@ -9,7 +9,7 @@ PLOT_2D = True
 PLOT_SGD = True
 PLOT_LOSSES = False
 PLOT_LR = False
-PLOT_SCATTER = False
+PLOT_SCATTER = True
 
 TEST_NET = False
 NUM_FREE_PARAMS = 8
@@ -30,7 +30,7 @@ LR_MIN = 0.001
 LR_MAX = 0.03
 EPOCHS = 10_000
 
-COLORS = ['r', 'b', 'g']
+COLORS = ['r', 'b', 'g', 'c', 'm', 'y']
 
 # Parameter range, sample range, axis range
 dimension_defaults = {
@@ -174,7 +174,7 @@ class ClassicalNet(Net):
     dw[1] /= len(x[0])
 
     if self.test_net:
-      positions = fixed_param_config[self.dist]
+      positions = get_fixed_param_config(self.dist, self.num_free_params)
       for e in itertools.product(*([[0, 1]] * 3)):
         if positions[e[1]][e[0]][e[2]]:
           self.w[e[0]][e[1], e[2]] -= lr * dw[e[0]][e[1], e[2]]
@@ -458,9 +458,17 @@ def get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, 
 _SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{resnet_last_activate}\
 _LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}"
 
-def plot_scatter(points, y=False):
-  plt.scatter(*zip(points), color='r' if y else 'b')
-  plt.show()
+def plot_scatter(scatters, y=False, filename=None):
+  plt.clf()
+  if y:
+    for i, scatter in enumerate(scatters):
+      plt.scatter(*zip(scatter), color=COLORS[i], s=2)
+  else:
+    plt.scatter(*zip(scatters), color='b')
+  if filename:
+    plt.savefig(filename)
+  else:
+    plt.show()
 
 '''
   Plot chart of loss over epochs
@@ -551,10 +559,11 @@ def run(weights_dist=WEIGHTS_DIST,
   sgd_paths = []
   losses = []
   lrs = []
+  scatters = []
 
   if PLOT_SCATTER:
-    plot_scatter(X)
-    plot_scatter(Y, True)
+    plot_scatter(X, filename=f"{fn}_SCAT-X.png")
+    plot_scatter([Y], True, f"{fn}_SCAT-Y.png")
 
   Y = noise(Y, noise_sd) if add_noise else Y
 
@@ -574,6 +583,9 @@ def run(weights_dist=WEIGHTS_DIST,
       sgd_paths.append(path)
       losses.append(_losses)
 
+      if test_net:
+        scatters.append(model.forward(X))
+
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, epochs)
   if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
@@ -581,8 +593,7 @@ def run(weights_dist=WEIGHTS_DIST,
   if test_net:
     if PLOT_SCATTER:
       # Use new parameters to generate new labels
-      free_Y = model.forward(X)
-      plot_scatter(free_Y, True)
+      plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
 
     new_X = get_rand((2, num_samples), sample_sd, rand_dist)
     new_Y = forward(new_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
@@ -607,8 +618,8 @@ if __name__ == '__main__':
   #   weights_dist=['chebyshev'],
   #   add_noise=[True, False],
   # )
-  run(weights_dist='chebyshev',
+  run(weights_dist='first',
       add_noise=True,
       test_net=True,
-      num_free_params=6,
+      num_free_params=3,
       num_samples=1000)

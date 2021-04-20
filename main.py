@@ -92,16 +92,20 @@ parameter_positions = {
 '''
 Values in the weight distribution to be frozen during unbound SGD.
 
-In the form (matrix_i, row_i, col_i, value)
+Structured to be visually intuitive, rather than the structure of the matrix.
+
+Number represents the number of free params.
+
+1 represents a randomised parameter, 0 is fixed.
 '''
-test_bound_vars = {
+fixed_param_config = {
   'first': [
-    [[1, 1], [1, 0]],
-    [[0, 0], [0, 0]],
+    [[1, 1], [0, 0]],
+    [[1, 0], [0, 0]],
   ],
   'chebyshev': [
-    [[0, 1], [1, 1]],
-    [[0, 1], [1, 1]],
+    [[0, 1], [0, 1]],
+    [[1, 1], [1, 1]],
   ],
 }
 
@@ -131,9 +135,9 @@ class Net:
     raise Exception("Get params not implemented")
 
   def randomise_free_vars(self):
-    positions = test_bound_vars[self.dist]
+    positions = fixed_param_config[self.dist]
     for e in itertools.product(*([[0, 1]] * 3)):
-      if positions[e[0]][e[1]][e[2]]:
+      if positions[e[1]][e[0]][e[2]]:
         self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
 
 class ClassicalNet(Net):
@@ -160,9 +164,9 @@ class ClassicalNet(Net):
     dw[1] /= len(x[0])
 
     if self.test_net:
-      positions = test_bound_vars[self.dist]
+      positions = fixed_param_config[self.dist]
       for e in itertools.product(*([[0, 1]] * 3)):
-        if positions[e[0]][e[1]][e[2]]:
+        if positions[e[1]][e[0]][e[2]]:
           self.w[e[0]][e[1], e[2]] -= lr * dw[e[0]][e[1], e[2]]
       return
 
@@ -579,5 +583,5 @@ if __name__ == '__main__':
   # )
   run(weights_dist='chebyshev',
       add_noise=True,
-      test_net=False,
+      test_net=True,
       num_samples=1000)

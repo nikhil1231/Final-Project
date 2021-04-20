@@ -430,6 +430,7 @@ def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size,
     plt.show()
 
   if plot_2d:
+    plt.clf()
     plt.contour(axis, axis, landscape, levels=20, cmap=cm.terrain)
     if paths:
       for i, path in enumerate(paths):

@@ -291,6 +291,8 @@ class ChebyshevNet(FunctionalNet):
     l = lambda a: np.array([1, a, 2*(a**2) - 1, 4*(a**3) - 3*a])
     return l(i), l(j)
 
+  def get_parameters(self):
+    return self.w[0][0, 1], self.w[1][0, 1]
 
 def diag(a):
   return np.array([[a[0], a[1]], [a[1], a[2]]])
@@ -528,7 +530,8 @@ def run(weights_dist=WEIGHTS_DIST,
         noise_sd=NOISE_SD,
         rand_dist=RAND_DIST,
         sgd_same_point=False,
-        save_plot=False):
+        save_plot=False,
+        verbose=False):
 
   if parameter_sd is None:
     parameter_sd = dimension_defaults[weights_dist][0]
@@ -560,12 +563,21 @@ def run(weights_dist=WEIGHTS_DIST,
   losses = []
   lrs = []
   scatters = []
+  unseen_losses = []
 
   if PLOT_SCATTER:
     plot_scatter(X, filename=f"{fn}_SCAT-X.png")
     plot_scatter([Y], True, f"{fn}_SCAT-Y.png")
 
   Y = noise(Y, noise_sd) if add_noise else Y
+
+  if verbose:
+    print("True params")
+    print(form_weights(*parameters, fixed, weights_dist))
+
+  unseen_X = get_rand((2, num_samples), sample_sd, rand_dist)
+  unseen_Y = forward(unseen_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
+  unseen_Y = noise(unseen_Y, noise_sd) if add_noise else unseen_Y
 
   if PLOT_SGD:
     for path_init in path_inits:
@@ -583,8 +595,17 @@ def run(weights_dist=WEIGHTS_DIST,
       sgd_paths.append(path)
       losses.append(_losses)
 
+      if verbose:
+        print("\nNew params")
+        print(model.get_parameters())
+        print(model.w)
+
       if test_net:
         scatters.append(model.forward(X))
+
+        y_hat = model.forward(unseen_X)
+        unseen_loss = loss(y_hat, unseen_Y)
+        unseen_losses.append((_losses[-1], unseen_loss))
 
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, epochs)
@@ -592,18 +613,14 @@ def run(weights_dist=WEIGHTS_DIST,
 
   if test_net:
     if PLOT_SCATTER:
-      # Use new parameters to generate new labels
+      # Use unseen parameters to generate unseen labels
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
 
-    new_X = get_rand((2, num_samples), sample_sd, rand_dist)
-    new_Y = forward(new_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
-
-    y_hat = model.forward(new_X)
-
-    loss_ = loss(y_hat, new_Y)
-
-    print(loss_)
-
+    if verbose:
+      print("Dist ", weights_dist, num_free_params)
+      for original_loss, unseen_loss in unseen_losses:
+        print("Loss on original samples: ", original_loss)
+        print("Loss on unseen samples: ", unseen_loss)
 
 def grid_search(**kwargs):
   i = 0
@@ -618,8 +635,8 @@ if __name__ == '__main__':
   #   weights_dist=['chebyshev'],
   #   add_noise=[True, False],
   # )
-  run(weights_dist='first',
-      add_noise=True,
+  run(weights_dist='chebyshev',
       test_net=True,
-      num_free_params=3,
-      num_samples=1000)
+      num_free_params=6,
+      save_plot=True,
+      verbose=True)

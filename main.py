@@ -525,7 +525,7 @@ def run(weights_dist=WEIGHTS_DIST,
     plot_scatter(X)
     plot_scatter(Y, True)
 
-  Y_labels = noise(Y, noise_sd) if add_noise else Y
+  Y = noise(Y, noise_sd) if add_noise else Y
 
   if PLOT_SGD:
     for path_init in path_inits:
@@ -544,7 +544,7 @@ def run(weights_dist=WEIGHTS_DIST,
       sgd_paths.append(path)
       losses.append(_losses)
 
-  if PLOT_SURFACE: plot(*parameters, fixed, X, Y_labels, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
+  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, epochs)
   if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
 
@@ -579,5 +579,5 @@ if __name__ == '__main__':
   # )
   run(weights_dist='chebyshev',
       add_noise=True,
-      test_net=True,
+      test_net=False,
       num_samples=1000)

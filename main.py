@@ -247,8 +247,8 @@ class FunctionalNet(Net):
     return self.i, self.j
 
 class RotationalNet(FunctionalNet):
-  def __init__(self, i, j, dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size):
-    super().__init__(i, j, dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size)
+  def __init__(self, i, j, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
+    super().__init__(i, j, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
     d = lambda a: np.array([
       [-np.sin(a), -np.cos(a)],
       [np.cos(a), -np.sin(a)]
@@ -256,8 +256,8 @@ class RotationalNet(FunctionalNet):
     self.derivs = [d, d]
 
 class ChebyshevNet(FunctionalNet):
-  def __init__(self, i, j, dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size):
-    super().__init__(i, j, dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size)
+  def __init__(self, i, j, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
+    super().__init__(i, j, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
 
     d = lambda a: np.array([
       [0, 1],
@@ -538,8 +538,7 @@ def run(weights_dist=WEIGHTS_DIST,
       if test_net or weights_dist not in nets:
         model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
       else:
-        model = nets[weights_dist](*path_init, weights_dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size)
-
+        model = nets[weights_dist](*path_init, weights_dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
       path, _losses, lrs = train(epochs, model, X, Y, fixed, weights_dist,
                                 lr_min, lr_max, epochs,
                                 num_samples, batch_size,

@@ -107,9 +107,8 @@ test_bound_vars = {
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
-class ClassicalNet:
-  def __init__(self, w, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
-    self.w = w
+class Net:
+  def __init__(self, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
     self.dist = dist
     self.test_net = test_net
     self.scaled = scaled
@@ -124,6 +123,23 @@ class ClassicalNet:
   def forward(self, x):
     self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.resnet_last_activate)
     return self.a2
+
+  def backward(self, x, y, lr):
+    raise Exception("Backprop not implemented")
+
+  def get_parameters(self):
+    raise Exception("Get params not implemented")
+
+  def randomise_free_vars(self):
+    positions = test_bound_vars[self.dist]
+    for e in itertools.product(*([[0, 1]] * 3)):
+      if positions[e[0]][e[1]][e[2]]:
+        self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
+
+class ClassicalNet(Net):
+  def __init__(self, w, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
+    self.w = w
+    super().__init__(dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
 
   def backward(self, x, y, lr):
 
@@ -176,29 +192,13 @@ class ClassicalNet:
     pos = parameter_positions[self.dist]
     return self.w[pos[0][0]][pos[0][1], pos[0][2]], self.w[pos[1][0]][pos[1][1], pos[1][2]]
 
-  def randomise_free_vars(self):
-    positions = test_bound_vars[self.dist]
-    for e in itertools.product(*([[0, 1]] * 3)):
-      if positions[e[0]][e[1]][e[2]]:
-        self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
-
-class FunctionalNet:
-  def __init__(self, i, j, dist, test_net, scaled, resnet, resnet_last_activate, batch_size, axis_size):
+class FunctionalNet(Net):
+  def __init__(self, i, j, dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
     self.i = i
     self.j = j
-    self.dist = dist
-    self.test_net = test_net
-    self.scaled = scaled
-    self.resnet = resnet
-    self.resnet_last_activate = resnet_last_activate
-    self.batch_size = batch_size
-    self.axis_size = axis_size
     self.w = form_weights(i, j, [0]*6, dist)
+    super().__init__(dist, test_net, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
     self.derivs = None
-
-  def forward(self, x):
-    self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.resnet_last_activate)
-    return self.a2
 
   def backward(self, x, y, lr):
     if not self.derivs:
@@ -231,8 +231,8 @@ class FunctionalNet:
     da2 = w2 @ dz2
     d['i'] = error * da2
 
-    avg_dj = np.sum(d['j'].flatten()) / self.batch_size
-    avg_di = np.sum(d['i'].flatten()) / self.batch_size
+    avg_dj = np.sum(d['j'].flatten()) / len(x[0])
+    avg_di = np.sum(d['i'].flatten()) / len(x[0])
 
     self.j -= avg_dj * lr
     self.i -= avg_di * lr

@@ -5,11 +5,11 @@ import itertools, functools, operator
 from os.path import exists
 
 PLOT_SURFACE = True
-PLOT_2D = True
-PLOT_SGD = True
+PLOT_2D = False
+PLOT_SGD = False
 PLOT_LOSSES = False
 PLOT_LR = False
-PLOT_SCATTER = True
+PLOT_SCATTER = False
 
 TEST_NET = False
 NUM_FREE_PARAMS = 8
@@ -21,7 +21,7 @@ BATCH_SIZE = 1
 
 WEIGHTS_DIST = 'chebyshev'
 RESNET = False
-RESNET_LAST_ACTIVATE = False
+LAST_ACTIVATE = False
 
 ADD_NOISE = False
 NOISE_SD = 0.05
@@ -31,6 +31,8 @@ LR_MAX = 0.03
 EPOCHS = 10_000
 
 COLORS = ['r', 'b', 'g', 'c', 'm', 'y']
+
+FOLDER = 'surface_exploration'
 
 # Parameter range, sample range, axis range
 dimension_defaults = {
@@ -121,13 +123,13 @@ fixed_param_config = {
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
 class Net:
-  def __init__(self, dist, test_net, num_free_params, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
+  def __init__(self, dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
     self.dist = dist
     self.test_net = test_net
     self.num_free_params = num_free_params
     self.scaled = scaled
     self.resnet = resnet
-    self.resnet_last_activate = resnet_last_activate
+    self.last_activate = last_activate
     self.parameter_sd = parameter_sd
     self.axis_size = axis_size
 
@@ -135,7 +137,7 @@ class Net:
       self.randomise_free_vars()
 
   def forward(self, x):
-    self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.resnet_last_activate)
+    self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.last_activate)
     return self.a2
 
   def backward(self, x, y, lr):
@@ -151,9 +153,9 @@ class Net:
         self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
 
 class ClassicalNet(Net):
-  def __init__(self, w, dist, test_net, num_free_params, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
+  def __init__(self, w, dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
     self.w = w
-    super().__init__(dist, test_net, num_free_params, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
+    super().__init__(dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
 
   def backward(self, x, y, lr):
 
@@ -207,11 +209,11 @@ class ClassicalNet(Net):
     return self.w[pos[0][0]][pos[0][1], pos[0][2]], self.w[pos[1][0]][pos[1][1], pos[1][2]]
 
 class FunctionalNet(Net):
-  def __init__(self, i, j, dist, test_net, num_free_params, scaled, resnet, resnet_last_activate, parameter_sd, axis_size):
+  def __init__(self, i, j, dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
     self.i = i
     self.j = j
     self.w = form_weights(i, j, [0]*6, dist)
-    super().__init__(dist, test_net, num_free_params, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
+    super().__init__(dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
     self.derivs = None
 
   def backward(self, x, y, lr):
@@ -330,19 +332,30 @@ def form_weights(i, j, fixed, dist):
 
   return list(map(lambda x: diag(x), weights))
 
-def forward(x, w, scaled, resnet, resnet_last_activate):
+def apply_scaling(m, scaled, resnet):
+  if not scaled:
+    return m
+  if resnet:
+    return (m * 2/3) - 1/3
+  return 2*m-1
+
+def forward(x, w, scaled, resnet, last_activate):
   if resnet:
     a1 = sigmoid(w[0] @ x) + x
-    z1 = (a1 * 2/3) - 1/3 if scaled else a1
-    if resnet_last_activate:
+    z1 = apply_scaling(a1, scaled, resnet)
+    if last_activate:
       a2 = sigmoid(w[1] @ z1) + z1
-      a2 = (a2 * 2/3) - 1/3 if scaled else a2
+      a2 = apply_scaling(a2, scaled, resnet)
     else:
       a2 = w[1] @ z1 + z1
   else:
     a1 = sigmoid(w[0] @ x)
-    z1 = (2*a1-1) if scaled else a1
-    a2 = w[1] @ z1
+    z1 = apply_scaling(a1, scaled, resnet)
+    if last_activate:
+      a2 = sigmoid(w[1] @ z1)
+      a2 = apply_scaling(a2, scaled, resnet)
+    else:
+      a2 = w[1] @ z1
   return a1, a2
 
 def loss(y_hat, Y):
@@ -454,10 +467,10 @@ def get_fixed_param_config(dist, n):
   return fixed_param_config[d]
 
 def get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
-                  axis_size, test_sd, scaled, resnet, resnet_last_activate, lr_min, lr_max,
+                  axis_size, test_sd, scaled, resnet, last_activate, lr_min, lr_max,
                   force_map_sgd, add_noise, noise_sd, rand_dist):
-  return f"figs/{weights_dist}_SGD{PLOT_SGD}_E{epochs}_T{test_net}_NFP{num_free_params}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
-_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{resnet_last_activate}\
+  return f"{FOLDER}/{weights_dist}_SGD{PLOT_SGD}_E{epochs}_T{test_net}_NFP{num_free_params}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
+_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{last_activate}\
 _LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}"
 
 def plot_scatter(scatters, y=False, filename=None):
@@ -522,7 +535,7 @@ def run(weights_dist=WEIGHTS_DIST,
         test_sd=None,
         scaled=None,
         resnet=RESNET,
-        resnet_last_activate=RESNET_LAST_ACTIVATE,
+        last_activate=LAST_ACTIVATE,
         lr_min=LR_MIN,
         lr_max=LR_MAX,
         force_map_sgd=FORCE_MAP_SGD,
@@ -545,7 +558,7 @@ def run(weights_dist=WEIGHTS_DIST,
     scaled = scaled_defaults[weights_dist]
 
   fn = get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
-                    axis_size, test_sd, scaled, resnet, resnet_last_activate, lr_min, lr_max,
+                    axis_size, test_sd, scaled, resnet, last_activate, lr_min, lr_max,
                     force_map_sgd, add_noise, noise_sd, rand_dist)
   if save_plot and exists("{fn}.png"):
     return
@@ -556,7 +569,7 @@ def run(weights_dist=WEIGHTS_DIST,
   fixed = get_rand(6, parameter_sd, 'uniform')
 
   X = get_rand((2, num_samples), sample_sd, rand_dist)
-  Y = forward(X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
+  Y = forward(X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, last_activate)[-1]
 
   path_inits = get_rand((NUM_RUNS, 2), axis_size * 0.9, 'uniform')
   sgd_paths = []
@@ -576,7 +589,7 @@ def run(weights_dist=WEIGHTS_DIST,
     print(form_weights(*parameters, fixed, weights_dist))
 
   unseen_X = get_rand((2, num_samples), sample_sd, rand_dist)
-  unseen_Y = forward(unseen_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, resnet_last_activate)[-1]
+  unseen_Y = forward(unseen_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, last_activate)[-1]
   unseen_Y = noise(unseen_Y, noise_sd) if add_noise else unseen_Y
 
   if PLOT_SGD:
@@ -584,14 +597,14 @@ def run(weights_dist=WEIGHTS_DIST,
       if sgd_same_point:
         path_init = starting_positions[weights_dist] # Start all from same point
       if weights_dist not in nets:
-        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, num_free_params, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
+        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
       else:
-        model = nets[weights_dist](*path_init, weights_dist, test_net, num_free_params, scaled, resnet, resnet_last_activate, parameter_sd, axis_size)
+        model = nets[weights_dist](*path_init, weights_dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
       path, _losses, lrs = train(epochs, model, X, Y, fixed, weights_dist,
                                 lr_min, lr_max, epochs,
                                 num_samples, batch_size,
                                 test_net, force_map_sgd,
-                                scaled, resnet, resnet_last_activate)
+                                scaled, resnet, last_activate)
       sgd_paths.append(path)
       losses.append(_losses)
 
@@ -607,7 +620,7 @@ def run(weights_dist=WEIGHTS_DIST,
         unseen_loss = loss(y_hat, unseen_Y)
         unseen_losses.append((_losses[-1], unseen_loss))
 
-  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, resnet_last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
+  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, epochs)
   if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
 
@@ -631,12 +644,9 @@ def grid_search(**kwargs):
     run(**dict(zip(kwargs.keys(), e)), save_plot=True)
 
 if __name__ == '__main__':
-  # grid_search(
-  #   weights_dist=['chebyshev'],
-  #   add_noise=[True, False],
-  # )
-  run(weights_dist='chebyshev',
-      test_net=True,
-      num_free_params=6,
-      save_plot=True,
-      verbose=True)
+  grid_search(
+    weights_dist=['first','second','equal','rotational','skew','chebyshev'],
+    resnet=[True, False],
+    last_activate=[True, False],
+  )
+  # run(weights_dist='chebyshev', resnet=True, last_activate=True)

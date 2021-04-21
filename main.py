@@ -15,9 +15,9 @@ TEST_NET = False
 NUM_FREE_PARAMS = 8
 FORCE_MAP_SGD = False
 
-NUM_RUNS = 6
+NUM_RUNS = 3
 NUM_SAMPLES = 1000
-BATCH_SIZE = 1
+BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
 RESNET = False
@@ -28,7 +28,7 @@ NOISE_SD = 0.05
 
 LR_MIN = 0.001
 LR_MAX = 0.03
-EPOCHS = 10_000
+EPOCHS = 15
 
 COLORS = ['r', 'b', 'g', 'c', 'm', 'brown']
 
@@ -378,34 +378,35 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
   lrs = []
 
   for epoch in range(epochs):
-    idx = np.random.choice(np.arange(num_samples), batch_size, replace=False)
+    for _ in range(num_samples // batch_size):
+      idx = np.random.choice(np.arange(num_samples), batch_size, replace=False)
 
-    batchx = X[:,idx]
-    batchy = Y[:,idx]
+      batchx = X[:,idx]
+      batchy = Y[:,idx]
 
-    lr = anneal_lr(epoch, lr_min, lr_max, max_epochs)
+      lr = anneal_lr(epoch, lr_min, lr_max, max_epochs)
 
-    m.forward(batchx)
+      m.forward(batchx)
 
-    # Update network, caclulate loss for plotting
-    m.backward(batchx, batchy, lr)
+      # Update network, caclulate loss for plotting
+      m.backward(batchx, batchy, lr)
 
-    new_params = m.get_parameters()
+      new_params = m.get_parameters()
 
-    if test_net and force_map_sgd:
-      y_hat = forward(X, form_weights(*new_params, fixed, dist), scaled, resnet, resnet_last_active)[-1]
-    else:
-      y_hat = m.forward(X, grad=False)
-    new_loss = loss(y_hat, Y)
+      if test_net and force_map_sgd:
+        y_hat = forward(X, form_weights(*new_params, fixed, dist), scaled, resnet, resnet_last_active)[-1]
+      else:
+        y_hat = m.forward(X, grad=False)
+      new_loss = loss(y_hat, Y)
 
-    valid_y_hat = m.forward(valid_X, grad=False)
-    valid_loss = loss(valid_y_hat, valid_Y)
+      valid_y_hat = m.forward(valid_X, grad=False)
+      valid_loss = loss(valid_y_hat, valid_Y)
 
-    path = (*new_params, new_loss)
-    sgd_path.append(path)
-    losses.append(new_loss)
-    valid_losses.append(valid_loss)
-    lrs.append(lr)
+      path = (*new_params, new_loss)
+      sgd_path.append(path)
+      losses.append(new_loss)
+      valid_losses.append(valid_loss)
+      lrs.append(lr)
 
   return sgd_path, losses, valid_losses, lrs
 
@@ -496,8 +497,8 @@ def plot_scatter(scatters, y=False, filename=None):
 '''
   Plot chart of loss over epochs
 '''
-def plot_losses(losses, epochs, validation=None):
-  epoch_axis = np.arange(1, epochs + 1)
+def plot_losses(losses, validation=None):
+  epoch_axis = np.arange(1, len(losses[0]) + 1)
   for loss_plt, valid_plt in zip(losses, validation):
     plt.plot(epoch_axis, loss_plt, label='Training loss')
     plt.plot(epoch_axis, valid_plt, label='Validation loss')
@@ -507,8 +508,8 @@ def plot_losses(losses, epochs, validation=None):
   plt.legend()
   plt.show()
 
-def plot_lrs(lrs, epochs, plot_log=True):
-  epoch_axis = np.arange(1, epochs + 1)
+def plot_lrs(lrs, plot_log=True):
+  epoch_axis = np.arange(1, len(lrs) + 1)
   plt.plot(epoch_axis, lrs)
   if plot_log:
     plt.yscale('log')
@@ -629,8 +630,8 @@ def run(weights_dist=WEIGHTS_DIST,
         print((_losses[-1], valid_losses[-1]))
 
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
-  if PLOT_LOSSES: plot_losses(losses, epochs, validation=valid_loss_runs)
-  if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
+  if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
+  if PLOT_LR: plot_lrs(lrs, plot_log=False)
 
   if test_net:
     if PLOT_SCATTER:
@@ -651,4 +652,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='chebyshev', test_net=True, num_free_params=2, resnet=True, epochs=1000, num_samples=10, batch_size=10)
+  run(weights_dist='chebyshev', test_net=True, num_free_params=2)

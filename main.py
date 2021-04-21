@@ -7,7 +7,7 @@ from os.path import exists
 PLOT_SURFACE = True
 PLOT_2D = False
 PLOT_SGD = True
-PLOT_LOSSES = True
+PLOT_LOSSES = False
 PLOT_LR = False
 PLOT_SCATTER = False
 
@@ -15,7 +15,7 @@ TEST_NET = False
 NUM_FREE_PARAMS = 8
 FORCE_MAP_SGD = False
 
-NUM_RUNS = 1
+NUM_RUNS = 6
 NUM_SAMPLES = 1000
 BATCH_SIZE = 1
 
@@ -241,14 +241,19 @@ class FunctionalNet(Net):
     z1 = (2*self.a1-1) if self.scaled else self.a1
 
     daj = dw2(self.j) @ z1
-    d['j'] = error * daj
-
     dz1 = dw1(self.i) @ x
-    da1 = self.a1 * (1 - self.a1) * dz1
-    dz2 = 2 * da1
-    w2 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
-    da2 = w2 @ dz2
-    d['i'] = error * da2
+    if self.dist == 'rotational':
+      d['j'] = error * daj
+
+      d['i'] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ dz1.T
+    else:
+      d['j'] = error * daj
+
+      da1 = self.a1 * (1 - self.a1) * dz1
+      dz2 = 2 * da1
+      w2 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
+      da2 = w2 @ dz2
+      d['i'] = error * da2
 
     avg_dj = np.sum(d['j'].flatten()) / len(x[0])
     avg_di = np.sum(d['i'].flatten()) / len(x[0])
@@ -260,14 +265,17 @@ class FunctionalNet(Net):
     dw_free[1] = error @ (2*self.a1.T - 1)
     dw_free[0] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ x.T
 
-    self.new_w = form_weights(self.i, self.j, [0]*6, self.dist)
+    new_w = form_weights(self.i, self.j, [0]*6, self.dist)
 
-    positions = get_fixed_param_config(self.dist, self.num_free_params)
-    for e in itertools.product(*([[0, 1]] * 3)):
-      if positions[e[1]][e[0]][e[2]]:
-        self.w[e[0]][e[1]][e[2]] -= lr * dw_free[e[0]][e[1]][e[2]]
-      else:
-        self.w[e[0]][e[1]][e[2]] = self.new_w[e[0]][e[1]][e[2]]
+    if self.test_net:
+      positions = get_fixed_param_config(self.dist, self.num_free_params)
+      for e in itertools.product(*([[0, 1]] * 3)):
+        if positions[e[1]][e[0]][e[2]]:
+          self.w[e[0]][e[1]][e[2]] -= lr * dw_free[e[0]][e[1]][e[2]]
+        else:
+          self.w[e[0]][e[1]][e[2]] = new_w[e[0]][e[1]][e[2]]
+    else:
+      self.w = new_w
 
   def get_parameters(self):
     return self.i, self.j
@@ -651,10 +659,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='first',
-    num_free_params=3,
-    test_net=True,
-    num_samples=1000,
-    batch_size=100,
-    epochs=1000
-  )
+  run(weights_dist='rotational')

@@ -6,8 +6,8 @@ from os.path import exists
 
 PLOT_SURFACE = True
 PLOT_2D = False
-PLOT_SGD = False
-PLOT_LOSSES = False
+PLOT_SGD = True
+PLOT_LOSSES = True
 PLOT_LR = False
 PLOT_SCATTER = False
 
@@ -15,7 +15,7 @@ TEST_NET = False
 NUM_FREE_PARAMS = 8
 FORCE_MAP_SGD = False
 
-NUM_RUNS = 3
+NUM_RUNS = 1
 NUM_SAMPLES = 1000
 BATCH_SIZE = 1
 
@@ -32,7 +32,7 @@ EPOCHS = 10_000
 
 COLORS = ['r', 'b', 'g', 'c', 'm', 'y']
 
-FOLDER = 'surface_exploration'
+FOLDER = 'figs'
 
 # Parameter range, sample range, axis range
 dimension_defaults = {
@@ -136,9 +136,12 @@ class Net:
     if test_net:
       self.randomise_free_vars()
 
-  def forward(self, x):
-    self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.last_activate)
-    return self.a2
+  def forward(self, x, grad=True):
+    if grad:
+      self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.last_activate)
+      return self.a2
+    else:
+      return forward(x, self.w, self.scaled, self.resnet, self.last_activate)[-1]
 
   def backward(self, x, y, lr):
     raise Exception("Backprop not implemented")
@@ -359,18 +362,19 @@ def forward(x, w, scaled, resnet, last_activate):
   return a1, a2
 
 def loss(y_hat, Y):
-  return sum(((y_hat - Y) ** 2).flatten()) / 2
+  return sum(((y_hat - Y) ** 2).flatten()) / len(Y[0])
 
 def anneal_lr(epoch, lr_min, lr_max, max_epochs):
   return lr_min + 0.5 * (lr_max - lr_min) * (1 + np.cos(np.pi * epoch / max_epochs))
 
-def train(epochs, m, X, Y, fixed, dist,
+def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
           lr_min, lr_max, max_epochs,
           num_samples, batch_size,
           test_net, force_map_sgd,
           scaled, resnet, resnet_last_active):
   sgd_path = []
   losses = []
+  valid_losses = []
   lrs = []
 
   for epoch in range(epochs):
@@ -391,15 +395,19 @@ def train(epochs, m, X, Y, fixed, dist,
     if test_net and force_map_sgd:
       y_hat = forward(X, form_weights(*new_params, fixed, dist), scaled, resnet, resnet_last_active)[-1]
     else:
-      y_hat = m.forward(X)
+      y_hat = m.forward(X, grad=False)
     new_loss = loss(y_hat, Y)
+
+    valid_y_hat = m.forward(valid_X, grad=False)
+    valid_loss = loss(valid_y_hat, valid_Y)
 
     path = (*new_params, new_loss)
     sgd_path.append(path)
     losses.append(new_loss)
+    valid_losses.append(valid_loss)
     lrs.append(lr)
 
-  return sgd_path, losses, lrs
+  return sgd_path, losses, valid_losses, lrs
 
 def calc_loss(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active):
   y_hat = forward(X, form_weights(i, j, fixed, dist), scaled, resnet, resnet_last_active)[-1]
@@ -488,14 +496,15 @@ def plot_scatter(scatters, y=False, filename=None):
 '''
   Plot chart of loss over epochs
 '''
-def plot_losses(losses, epochs):
+def plot_losses(losses, epochs, validation=None):
   epoch_axis = np.arange(1, epochs + 1)
-  for loss_plt in losses:
-    plt.plot(epoch_axis, loss_plt)
-  # plt.yscale('log')
-  plt.ylim(bottom=-0.5)
+  for loss_plt, valid_plt in zip(losses, validation):
+    plt.plot(epoch_axis, loss_plt, label='Training loss')
+    plt.plot(epoch_axis, valid_plt, label='Validation loss')
+  plt.yscale('log')
   plt.xlabel('Epochs')
   plt.ylabel('Loss')
+  plt.legend()
   plt.show()
 
 def plot_lrs(lrs, epochs, plot_log=True):
@@ -576,7 +585,7 @@ def run(weights_dist=WEIGHTS_DIST,
   losses = []
   lrs = []
   scatters = []
-  unseen_losses = []
+  valid_loss_runs = []
 
   if PLOT_SCATTER:
     plot_scatter(X, filename=f"{fn}_SCAT-X.png")
@@ -588,9 +597,9 @@ def run(weights_dist=WEIGHTS_DIST,
     print("True params")
     print(form_weights(*parameters, fixed, weights_dist))
 
-  unseen_X = get_rand((2, num_samples), sample_sd, rand_dist)
-  unseen_Y = forward(unseen_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, last_activate)[-1]
-  unseen_Y = noise(unseen_Y, noise_sd) if add_noise else unseen_Y
+  valid_X = get_rand((2, num_samples), sample_sd, rand_dist)
+  valid_Y = forward(valid_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, last_activate)[-1]
+  valid_Y = noise(valid_Y, noise_sd) if add_noise else valid_Y
 
   if PLOT_SGD:
     for path_init in path_inits:
@@ -600,13 +609,14 @@ def run(weights_dist=WEIGHTS_DIST,
         model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
       else:
         model = nets[weights_dist](*path_init, weights_dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
-      path, _losses, lrs = train(epochs, model, X, Y, fixed, weights_dist,
-                                lr_min, lr_max, epochs,
-                                num_samples, batch_size,
-                                test_net, force_map_sgd,
-                                scaled, resnet, last_activate)
+      path, _losses, valid_losses, lrs = train(epochs, model, X, Y, valid_X, valid_Y, fixed, weights_dist,
+                                              lr_min, lr_max, epochs,
+                                              num_samples, batch_size,
+                                              test_net, force_map_sgd,
+                                              scaled, resnet, last_activate)
       sgd_paths.append(path)
       losses.append(_losses)
+      valid_loss_runs.append(valid_losses)
 
       if verbose:
         print("\nNew params")
@@ -614,26 +624,18 @@ def run(weights_dist=WEIGHTS_DIST,
         print(model.w)
 
       if test_net:
-        scatters.append(model.forward(X))
+        scatters.append(model.forward(X, grad=False))
 
-        y_hat = model.forward(unseen_X)
-        unseen_loss = loss(y_hat, unseen_Y)
-        unseen_losses.append((_losses[-1], unseen_loss))
+        print((_losses[-1], valid_losses[-1]))
 
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
-  if PLOT_LOSSES: plot_losses(losses, epochs)
+  if PLOT_LOSSES: plot_losses(losses, epochs, validation=valid_loss_runs)
   if PLOT_LR: plot_lrs(lrs, epochs, plot_log=False)
 
   if test_net:
     if PLOT_SCATTER:
-      # Use unseen parameters to generate unseen labels
+      # Use valid parameters to generate valid labels
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
-
-    if verbose:
-      print("Dist ", weights_dist, num_free_params)
-      for original_loss, unseen_loss in unseen_losses:
-        print("Loss on original samples: ", original_loss)
-        print("Loss on unseen samples: ", unseen_loss)
 
 def grid_search(**kwargs):
   i = 0
@@ -644,9 +646,15 @@ def grid_search(**kwargs):
     run(**dict(zip(kwargs.keys(), e)), save_plot=True)
 
 if __name__ == '__main__':
-  grid_search(
-    weights_dist=['first','second','equal','rotational','skew','chebyshev'],
-    resnet=[True, False],
-    last_activate=[True, False],
+  # grid_search(
+  #   weights_dist=['first','second','equal','rotational','skew','chebyshev'],
+  #   resnet=[True, False],
+  #   last_activate=[True, False],
+  # )
+  run(weights_dist='first',
+    num_free_params=3,
+    test_net=True,
+    num_samples=1000,
+    batch_size=100,
+    epochs=1000
   )
-  # run(weights_dist='chebyshev', resnet=True, last_activate=True)

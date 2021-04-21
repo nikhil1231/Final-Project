@@ -348,22 +348,17 @@ def apply_scaling(m, scaled, resnet):
   return 2*m-1
 
 def forward(x, w, scaled, resnet, last_activate):
-  if resnet:
-    a1 = sigmoid(w[0] @ x)
-    z1 = apply_scaling(a1 + x, scaled, resnet)
-    if last_activate:
-      a2 = sigmoid(w[1] @ z1) + z1
-      a2 = apply_scaling(a2, scaled, resnet)
-    else:
-      a2 = w[1] @ z1 + z1
+  zeros = np.zeros(np.shape(x))
+  skip = x if resnet else zeros
+  a1 = sigmoid(w[0] @ x)
+  z1 = apply_scaling(a1 + skip, scaled, resnet)
+
+  skip = z1 if resnet else zeros
+  if last_activate:
+    a2 = sigmoid(w[1] @ z1)
+    a2 = apply_scaling(a2 + skip, scaled, resnet)
   else:
-    a1 = sigmoid(w[0] @ x)
-    z1 = apply_scaling(a1, scaled, resnet)
-    if last_activate:
-      a2 = sigmoid(w[1] @ z1)
-      a2 = apply_scaling(a2, scaled, resnet)
-    else:
-      a2 = w[1] @ z1
+    a2 = w[1] @ z1 + skip
   return a1, a2
 
 def loss(y_hat, Y):

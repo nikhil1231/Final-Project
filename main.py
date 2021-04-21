@@ -7,7 +7,7 @@ from os.path import exists
 PLOT_SURFACE = True
 PLOT_2D = False
 PLOT_SGD = True
-PLOT_LOSSES = False
+PLOT_LOSSES = True
 PLOT_LR = False
 PLOT_SCATTER = False
 
@@ -30,7 +30,7 @@ LR_MIN = 0.001
 LR_MAX = 0.03
 EPOCHS = 10_000
 
-COLORS = ['r', 'b', 'g', 'c', 'm', 'y']
+COLORS = ['r', 'b', 'g', 'c', 'm', 'brown']
 
 FOLDER = 'figs'
 
@@ -166,10 +166,7 @@ class ClassicalNet(Net):
 
     error = self.a2 - y
 
-    if self.scaled:
-      dw[1] = error @ (2*self.a1.T - 1)
-    else:
-      dw[1] = error @ self.a1.T
+    dw[1] = error @ apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet).T
 
     w2 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
 
@@ -238,12 +235,12 @@ class FunctionalNet(Net):
     dw1 = self.derivs[0]
     dw2 = self.derivs[1]
 
-    z1 = (2*self.a1-1) if self.scaled else self.a1
+    z1 = apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet)
 
     daj = dw2(self.j) @ z1
     dz1 = dw1(self.i) @ x
     if self.dist == 'rotational':
-      d['j'] = error * daj
+      d['j'] = error @ daj.T
 
       d['i'] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ dz1.T
     else:
@@ -262,7 +259,7 @@ class FunctionalNet(Net):
     self.i -= avg_di * lr
 
     dw_free = [None] * 2
-    dw_free[1] = error @ (2*self.a1.T - 1)
+    dw_free[1] = error @ z1.T
     dw_free[0] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ x.T
 
     new_w = form_weights(self.i, self.j, [0]*6, self.dist)
@@ -352,8 +349,8 @@ def apply_scaling(m, scaled, resnet):
 
 def forward(x, w, scaled, resnet, last_activate):
   if resnet:
-    a1 = sigmoid(w[0] @ x) + x
-    z1 = apply_scaling(a1, scaled, resnet)
+    a1 = sigmoid(w[0] @ x)
+    z1 = apply_scaling(a1 + x, scaled, resnet)
     if last_activate:
       a2 = sigmoid(w[1] @ z1) + z1
       a2 = apply_scaling(a2, scaled, resnet)
@@ -659,4 +656,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='rotational')
+  run(weights_dist='chebyshev', test_net=True, num_free_params=2, resnet=True, epochs=1000, num_samples=10, batch_size=10)

@@ -36,8 +36,8 @@ FOLDER = 'figs'
 
 # Parameter range, sample range, axis range
 dimension_defaults = {
-  'first': [1, 1, 1],
-  'second': [1, 1, 5],
+  'first': [2, 2, 5],
+  'second': [2, 2, 5],
   'equal': [1, 1, 1],
   'rotational': [1, np.pi, 5],
   'skew': [1, 1, 1],

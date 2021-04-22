@@ -41,6 +41,7 @@ dimension_defaults = {
   'equal': [1, 1, 1],
   'rotational': [1, np.pi, 5],
   'skew': [1, 1, 1],
+  'monomial': [0.9, 0.9, 0.9],
   'chebyshev': [0.9, 0.9, 0.9],
 }
 
@@ -50,6 +51,7 @@ starting_positions = {
   'equal': [-0.5, -0.6],
   'rotational': [-0.5, -0.6],
   'skew': [-0.5, -0.6],
+  'monomial': [-0.5, -0.6],
   'chebyshev': [-0.5, -0.6],
 }
 
@@ -59,6 +61,7 @@ scaled_defaults = {
   'equal': True,
   'rotational': False,
   'skew': True,
+  'monomial': True,
   'chebyshev': True,
 }
 
@@ -68,6 +71,7 @@ seeds = {
   'equal': 5,
   'rotational': 1,
   'skew': 5,
+  'monomial': 6,
   'chebyshev': 6, #0, 3
 }
 
@@ -77,6 +81,7 @@ view_angle_defaults = {
   'equal': [70, 210],
   'rotational': [70, 210],
   'skew': [70, 210],
+  'monomial': [60, 30],
   'chebyshev': [60, 30],
 }
 
@@ -89,6 +94,7 @@ parameter_positions = {
   'rotational': [(0, 0, 0), (1, 0, 0)],
   'skew': [(0, 0, 1), (1, 0, 1)],
   'resnet': [(0, 0, 0), (0, 0, 1)],
+  'monomial': [(0, 0, 1), (1, 0, 1)],
   'chebyshev': [(0, 0, 1), (1, 0, 1)],
 }
 
@@ -286,6 +292,21 @@ class RotationalNet(FunctionalNet):
     ])
     self.derivs = [d, d]
 
+class MonomialNet(FunctionalNet):
+  def __init__(self, *args):
+    super().__init__(*args)
+
+    d = lambda a: np.array([
+      [0, 1],
+      [2*a, 3*(a**2)]
+    ])
+    self.derivs = [d, d]
+
+  @staticmethod
+  def form_weights(i, j):
+    l = lambda a: np.array([1, a, (a**2), (a**3)])
+    return l(i), l(j)
+
 class ChebyshevNet(FunctionalNet):
   def __init__(self, *args):
     super().__init__(*args)
@@ -326,6 +347,10 @@ def form_weights(i, j, fixed, dist):
   if dist == 'rotational':
     weights = [np.cos(i), -np.sin(i), np.sin(i)], [np.cos(j), -np.sin(j), np.sin(j)]
     return list(map(lambda x: forward_diag(x), weights))
+
+  elif dist == 'monomial':
+    weights = MonomialNet.form_weights(i, j)
+    return list(map(lambda x: matrix(x), weights))
 
   elif dist == 'chebyshev':
     weights = ChebyshevNet.form_weights(i, j)
@@ -529,6 +554,7 @@ def noise(Y, noise_sd):
   return Y + n
 
 nets = {
+  'monomial': MonomialNet,
   'chebyshev': ChebyshevNet,
   'rotational': RotationalNet,
 }
@@ -652,4 +678,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='chebyshev', test_net=True, num_free_params=2)
+  run(weights_dist='monomial')

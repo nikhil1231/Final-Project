@@ -464,8 +464,8 @@ def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size,
   plt.xlim([-axis_size, axis_size])
   plt.ylim([-axis_size, axis_size])
   ax.axes.set_zlim3d([0, np.max(Z)])
-  plt.xlabel('i')
-  plt.ylabel('j')
+  plt.xlabel('α')
+  plt.ylabel('β')
   ax.set_zlabel('Loss')
 
   elevation = view_angle_defaults[dist][0]

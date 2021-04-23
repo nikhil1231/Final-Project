@@ -7,7 +7,7 @@ from os.path import exists
 PLOT_SURFACE = True
 PLOT_2D = False
 PLOT_SGD = True
-PLOT_LOSSES = True
+PLOT_LOSSES = False
 PLOT_LR = False
 PLOT_SCATTER = False
 
@@ -129,8 +129,9 @@ fixed_param_config = {
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
 class Net:
-  def __init__(self, dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
+  def __init__(self, dist, fixed, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
     self.dist = dist
+    self.fixed = fixed
     self.test_net = test_net
     self.num_free_params = num_free_params
     self.scaled = scaled
@@ -144,8 +145,8 @@ class Net:
 
   def forward(self, x, grad=True):
     if grad:
-      self.a1, self.a2 = forward(x, self.w, self.scaled, self.resnet, self.last_activate)
-      return self.a2
+      self.a1, self.a2, self.h2 = forward(x, self.w, self.scaled, self.resnet, self.last_activate)
+      return self.h2
     else:
       return forward(x, self.w, self.scaled, self.resnet, self.last_activate)[-1]
 
@@ -161,16 +162,56 @@ class Net:
       if positions[e[1]][e[0]][e[2]]:
         self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
 
+  def check_grad(self, x, y, grads_i=None, grads_j=None, eps=1e-6):
+    if not grads_i or not grads_j:
+      raise Exception("Grads required")
+    i, j = self.get_parameters()
+    v = self._get_forward_vals(x, y, i, j)
+    # Generate augmented weights based on new params
+    vi = self._get_forward_vals(x, y, i + eps, j)
+    vj = self._get_forward_vals(x, y, i, j + eps)
+
+    (fdw1, fdz1i, fda1i, fdh1i, _, fdz2i, fda2i, fdh2i, fdli) = (vi - v) / eps
+    (_, _, _, _, fdw2, fdz2j, fda2j, fdh2j, fdlj) = (vj - v) / eps
+
+    (dw2, dz2j, da2j, dh2j, dlj) = grads_j
+    print("=== Grads j ===")
+    print('dw2', loss(dw2, fdw2))
+    print('dz2j', loss(dz2j, fdz2j))
+    print('da2j', loss(da2j, fda2j))
+    print('dh2j', loss(dh2j, fdh2j))
+    print('dlj', (dlj - fdlj)**2)
+
+    (dw1, dz1i, da1i, dh1i, dz2i, da2i, dh2i, dli) = grads_i
+    print("=== Grads i ===")
+    print('dw1', loss(dw1, fdw1))
+    print('dz1i', loss(dz1i, fdz1i))
+    print('da1i', loss(da1i, fda1i))
+    print('dh1i', loss(dh1i, fdh1i))
+    print('dz2i', loss(dz2i, fdz2i))
+    print('da2i', loss(da2i, fda2i))
+    print('dh2i', loss(dh2i, fdh2i))
+    print('dli', (dli - fdli)**2)
+    print()
+
+  def _get_forward_vals(self, x, y, *free_params):
+    w_ = form_weights(*free_params, self.fixed, self.dist)
+
+    vals = _forward(x, w_, self.scaled, self.resnet, self.last_activate)
+    l = loss(vals[-1], y)
+
+    return np.array([*vals, l])
+
 class ClassicalNet(Net):
-  def __init__(self, w, dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
+  def __init__(self, w, *args):
     self.w = w
-    super().__init__(dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
+    super().__init__(*args)
 
   def backward(self, x, y, lr):
 
     dw = [None] * 2
 
-    error = self.a2 - y
+    error = self.h2 - y
 
     dw[1] = error @ apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet).T
 
@@ -216,11 +257,11 @@ class ClassicalNet(Net):
     return self.w[pos[0][0]][pos[0][1], pos[0][2]], self.w[pos[1][0]][pos[1][1], pos[1][2]]
 
 class FunctionalNet(Net):
-  def __init__(self, i, j, dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
+  def __init__(self, i, j, dist, *args):
     self.i = i
     self.j = j
     self.w = form_weights(i, j, [0]*6, dist)
-    super().__init__(dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
+    super().__init__(dist, *args)
     self.derivs = None
 
   def backward(self, x, y, lr):
@@ -236,38 +277,54 @@ class FunctionalNet(Net):
       'j': None
     }
 
-    error = self.a2 - y
-
     # Derivative of functional matrix
-    _dw1 = self.derivs[0]
-    _dw2 = self.derivs[1]
+    dw1 = self.derivs[0](self.i)
+    dw2 = self.derivs[1](self.j)
 
     h1 = apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet)
 
-    dw2 = _dw2(self.j) @ h1
-    dw1 = _dw1(self.i) @ x
+    dz2j = dw2 @ h1
+    dz1i = dw1 @ x
 
-    dz2a1 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
     da1z1 = self.a1 * (1 - self.a1)
+    dh1a1 = deriv_scaling(self.scaled, self.resnet)
+    dz2h1 = self.w[1]
+    da2z2 = self.a2 * (1 - self.a2)
+    dh2a2 = 1
+    dlh2 = self.h2 - y
 
     if self.dist == 'rotational':
-      d['j'] = error @ dw2.T
-      d['i'] = dz2a1.T @ error * da1z1 @ dw1.T
+      d['j'] = dlh2 @ dw2.T
+      d['i'] = dz2h1.T @ dlh2 * da1z1 @ dw1.T
     else:
-      d['j'] = error * dw2
-      da1 = da1z1 * dw1
-      da2 = dz2a1 @ da1
-      d['i'] = error * da2
+      da2j = da2z2 * dz2j if self.resnet else dz2j
+      dh2j = dh2a2 * da2j
+      d['j'] = dlh2 * dh2j
+
+      da1i = da1z1 * dz1i
+      dh1i = dh1a1 * da1i
+      dz2i = dz2h1 @ dh1i
+      if self.resnet:
+        da2i = da2z2 * dz2i
+        dh2i = dh2a2 * da2i + dh1i
+      else:
+        da2i = dz2i
+        dh2i = dh2a2 * da2i
+      d['i'] = dlh2 * dh2i
 
     avg_dj = np.sum(d['j'].flatten()) / len(x[0])
     avg_di = np.sum(d['i'].flatten()) / len(x[0])
+
+    self.check_grad(x, y,
+                    grads_i=(dw1, dz1i, da1i, dh1i, dz2i, da2i, dh2i, avg_di),
+                    grads_j=(dw2, dz2j, da2j, dh2j, avg_dj))
 
     self.j -= avg_dj * lr
     self.i -= avg_di * lr
 
     dw_free = [None] * 2
-    dw_free[1] = error @ h1.T
-    dw_free[0] = dz2a1.T @ error * da1z1 @ x.T
+    dw_free[1] = dlh2 @ h1.T
+    dw_free[0] = dz2h1.T @ dlh2 * da1z1 @ x.T
 
     new_w = form_weights(self.i, self.j, [0]*6, self.dist)
 
@@ -373,22 +430,37 @@ def apply_scaling(m, scaled, resnet):
     return (m * 2/3) - 1/3
   return 2*m-1
 
-def forward(x, w, scaled, resnet, last_activate):
+def deriv_scaling(scaled, resnet):
+  if not scaled:
+    return 1
+  if resnet:
+    return 2/3
+  return 2
+
+def _forward(x, w, scaled, resnet, last_activate):
   zeros = np.zeros(np.shape(x))
   skip = x if resnet else zeros
-  a1 = sigmoid(w[0] @ x)
+  w1 = w[0]
+  z1 = w1 @ x
+  a1 = sigmoid(z1)
   h1 = apply_scaling(a1 + skip, scaled, resnet)
 
+  w2 = w[1]
+  z2 = w2 @ h1
   skip = h1 if resnet else zeros
   if last_activate:
-    a2 = sigmoid(w[1] @ h1)
-    h2 = apply_scaling(a2 + skip, scaled, resnet)
+    a2 = sigmoid(z2)
+    h2 = a2 + skip
   else:
-    a2 = w[1] @ h1 + skip
-  return a1, a2
+    a2 = h2 = z2 + skip
+  return w1, z1, a1, h1, w2, z2, a2, h2
+
+def forward(*args):
+  w1, z1, a1, h1, w2, z2, a2, h2 = _forward(*args)
+  return a1, a2, h2
 
 def loss(y_hat, Y):
-  return sum(((y_hat - Y) ** 2).flatten()) / len(Y[0])
+  return 0.5 * sum(((y_hat - Y) ** 2).flatten()) / len(Y[0])
 
 def anneal_lr(epoch, lr_min, lr_max, max_epochs):
   return lr_min + 0.5 * (lr_max - lr_min) * (1 + np.cos(np.pi * epoch / max_epochs))
@@ -436,12 +508,12 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
 
   return sgd_path, losses, valid_losses, lrs
 
-def calc_loss(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active):
-  y_hat = forward(X, form_weights(i, j, fixed, dist), scaled, resnet, resnet_last_active)[-1]
+def calc_loss(i, j, fixed, X, Y, dist, *args):
+  y_hat = forward(X, form_weights(i, j, fixed, dist), *args)[-1]
   return loss(y_hat, Y)
 
-def create_landscape(axis, fixed, X, Y, dist, scaled, resnet, resnet_last_active):
-  return [[calc_loss(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active) for i in axis] for j in axis]
+def create_landscape(axis, *args):
+  return [[calc_loss(i, j, *args) for i in axis] for j in axis]
 
 '''
   Plot 3D contours of the loss landscape
@@ -634,9 +706,9 @@ def run(weights_dist=WEIGHTS_DIST,
       if sgd_same_point:
         path_init = starting_positions[weights_dist] # Start all from same point
       if weights_dist not in nets:
-        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
+        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, fixed, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
       else:
-        model = nets[weights_dist](*path_init, weights_dist, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
+        model = nets[weights_dist](*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
       path, _losses, valid_losses, lrs = train(epochs, model, X, Y, valid_X, valid_Y, fixed, weights_dist,
                                               lr_min, lr_max, epochs,
                                               num_samples, batch_size,
@@ -679,4 +751,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='chebyshev', resnet=True)
+  run(weights_dist='chebyshev', resnet=True, last_activate=True)

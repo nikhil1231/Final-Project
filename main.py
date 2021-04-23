@@ -21,7 +21,6 @@ BATCH_SIZE = 10
 
 WEIGHTS_DIST = 'chebyshev'
 RESNET = False
-LAST_ACTIVATE = False
 
 ADD_NOISE = False
 NOISE_SD = 0.05
@@ -129,14 +128,13 @@ fixed_param_config = {
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
 class Net:
-  def __init__(self, dist, fixed, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size):
+  def __init__(self, dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size):
     self.dist = dist
     self.fixed = fixed
     self.test_net = test_net
     self.num_free_params = num_free_params
     self.scaled = scaled
     self.resnet = resnet
-    self.last_activate = last_activate
     self.parameter_sd = parameter_sd
     self.axis_size = axis_size
 
@@ -145,10 +143,10 @@ class Net:
 
   def forward(self, x, grad=True):
     if grad:
-      self.a1, self.a2, self.h2 = forward(x, self.w, self.scaled, self.resnet, self.last_activate)
+      self.a1, self.a2, self.h2 = forward(x, self.w, self.scaled, self.resnet)
       return self.h2
     else:
-      return forward(x, self.w, self.scaled, self.resnet, self.last_activate)[-1]
+      return forward(x, self.w, self.scaled, self.resnet)[-1]
 
   def backward(self, x, y, lr):
     raise Exception("Backprop not implemented")
@@ -197,7 +195,7 @@ class Net:
   def _get_forward_vals(self, x, y, *free_params):
     w_ = form_weights(*free_params, self.fixed, self.dist)
 
-    vals = _forward(x, w_, self.scaled, self.resnet, self.last_activate)
+    vals = _forward(x, w_, self.scaled, self.resnet)
     l = loss(vals[-1], y)
 
     return np.array([*vals, l])
@@ -433,7 +431,7 @@ def deriv_scaling(scaled, resnet):
     return 2/3
   return 2
 
-def _forward(x, w, scaled, resnet, last_activate):
+def _forward(x, w, scaled, resnet):
   zeros = np.zeros(np.shape(x))
   skip = x if resnet else zeros
   w1 = w[0]
@@ -443,10 +441,9 @@ def _forward(x, w, scaled, resnet, last_activate):
 
   w2 = w[1]
   z2 = w2 @ h1
-  skip = h1 if resnet else zeros
-  if last_activate:
+  if resnet:
     a2 = sigmoid(z2)
-    h2 = a2 + skip
+    h2 = a2 + h1
   else:
     a2 = h2 = z2 + skip
   return w1, z1, a1, h1, w2, z2, a2, h2
@@ -465,7 +462,7 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
           lr_min, lr_max, max_epochs,
           num_samples, batch_size,
           test_net, force_map_sgd,
-          scaled, resnet, resnet_last_active):
+          scaled, resnet):
   sgd_path = []
   losses = []
   valid_losses = []
@@ -488,7 +485,7 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
       new_params = m.get_parameters()
 
       if test_net and force_map_sgd:
-        y_hat = forward(X, form_weights(*new_params, fixed, dist), scaled, resnet, resnet_last_active)[-1]
+        y_hat = forward(X, form_weights(*new_params, fixed, dist), scaled, resnet)[-1]
       else:
         y_hat = m.forward(X, grad=False)
       new_loss = loss(y_hat, Y)
@@ -514,12 +511,12 @@ def create_landscape(axis, *args):
 '''
   Plot 3D contours of the loss landscape
 '''
-def plot(i, j, fixed, X, Y, dist, scaled, resnet, resnet_last_active, axis_size, save, filepath, paths=None, plot_2d=False):
+def plot(i, j, fixed, X, Y, dist, scaled, resnet, axis_size, save, filepath, paths=None, plot_2d=False):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
   axis = np.arange(-axis_size, axis_size, axis_size/100)
-  landscape = create_landscape(axis, fixed, X, Y, dist, scaled, resnet, resnet_last_active)
+  landscape = create_landscape(axis, fixed, X, Y, dist, scaled, resnet)
   Z = np.array(landscape)
   axis_x, axis_y = np.meshgrid(axis, axis)
 
@@ -570,10 +567,10 @@ def get_fixed_param_config(dist, n):
   return fixed_param_config[d]
 
 def get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
-                  axis_size, test_sd, scaled, resnet, last_activate, lr_min, lr_max,
+                  axis_size, test_sd, scaled, resnet, lr_min, lr_max,
                   force_map_sgd, add_noise, noise_sd, rand_dist):
   return f"{FOLDER}/{weights_dist}_SGD{PLOT_SGD}_E{epochs}_T{test_net}_NFP{num_free_params}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
-_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}_RNL{last_activate}\
+_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}\
 _LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}"
 
 def plot_scatter(scatters, y=False, filename=None):
@@ -640,7 +637,6 @@ def run(weights_dist=WEIGHTS_DIST,
         test_sd=None,
         scaled=None,
         resnet=RESNET,
-        last_activate=LAST_ACTIVATE,
         lr_min=LR_MIN,
         lr_max=LR_MAX,
         force_map_sgd=FORCE_MAP_SGD,
@@ -663,7 +659,7 @@ def run(weights_dist=WEIGHTS_DIST,
     scaled = scaled_defaults[weights_dist]
 
   fn = get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
-                    axis_size, test_sd, scaled, resnet, last_activate, lr_min, lr_max,
+                    axis_size, test_sd, scaled, resnet, lr_min, lr_max,
                     force_map_sgd, add_noise, noise_sd, rand_dist)
   if save_plot and exists("{fn}.png"):
     return
@@ -674,7 +670,7 @@ def run(weights_dist=WEIGHTS_DIST,
   fixed = get_rand(6, parameter_sd, 'uniform')
 
   X = get_rand((2, num_samples), sample_sd, rand_dist)
-  Y = forward(X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, last_activate)[-1]
+  Y = forward(X, form_weights(*parameters, fixed, weights_dist), scaled, resnet)[-1]
 
   path_inits = get_rand((NUM_RUNS, 2), axis_size * 0.9, 'uniform')
   sgd_paths = []
@@ -694,7 +690,7 @@ def run(weights_dist=WEIGHTS_DIST,
     print(form_weights(*parameters, fixed, weights_dist))
 
   valid_X = get_rand((2, num_samples), sample_sd, rand_dist)
-  valid_Y = forward(valid_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet, last_activate)[-1]
+  valid_Y = forward(valid_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet)[-1]
   valid_Y = noise(valid_Y, noise_sd) if add_noise else valid_Y
 
   if PLOT_SGD:
@@ -702,14 +698,14 @@ def run(weights_dist=WEIGHTS_DIST,
       if sgd_same_point:
         path_init = starting_positions[weights_dist] # Start all from same point
       if weights_dist not in nets:
-        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, fixed, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
+        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
       else:
-        model = nets[weights_dist](*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, last_activate, parameter_sd, axis_size)
+        model = nets[weights_dist](*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
       path, _losses, valid_losses, lrs = train(epochs, model, X, Y, valid_X, valid_Y, fixed, weights_dist,
                                               lr_min, lr_max, epochs,
                                               num_samples, batch_size,
                                               test_net, force_map_sgd,
-                                              scaled, resnet, last_activate)
+                                              scaled, resnet)
       sgd_paths.append(path)
       losses.append(_losses)
       valid_loss_runs.append(valid_losses)
@@ -724,7 +720,7 @@ def run(weights_dist=WEIGHTS_DIST,
 
         print((_losses[-1], valid_losses[-1]))
 
-  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, last_activate, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
+  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
   if PLOT_LR: plot_lrs(lrs, plot_log=False)
 
@@ -747,4 +743,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='rotational', resnet=True, last_activate=True)
+  run(weights_dist='rotational', resnet=True)

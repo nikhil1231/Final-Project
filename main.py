@@ -11,7 +11,7 @@ PLOT_LOSSES = False
 PLOT_LR = False
 PLOT_SCATTER = False
 
-CHECK_GRAD = False
+CHECK_GRAD = True
 
 TEST_NET = False
 NUM_FREE_PARAMS = 8
@@ -38,51 +38,30 @@ FOLDER = 'figs'
 # Parameter range, sample range, axis range
 dimension_defaults = {
   'first': [2, 2, 5],
-  'second': [2, 2, 5],
-  'equal': [1, 1, 1],
   'rotational': [1, np.pi, 5],
-  'skew': [1, 1, 1],
-  'monomial': [0.9, 0.9, 0.9],
   'chebyshev': [0.9, 0.9, 0.9],
 }
 
 starting_positions = {
-  'first': [-0.5, -0.6],
-  'second': [-0.5, -0.6],
-  'equal': [-0.5, -0.6],
   'rotational': [-0.5, -0.6],
-  'skew': [-0.5, -0.6],
-  'monomial': [-0.5, -0.6],
   'chebyshev': [-0.5, -0.6],
 }
 
 scaled_defaults = {
   'first': False,
-  'second': False,
-  'equal': True,
   'rotational': False,
-  'skew': True,
-  'monomial': True,
   'chebyshev': True,
 }
 
 seeds = {
   'first': 1,
-  'second': 0,
-  'equal': 5,
   'rotational': 1,
-  'skew': 5,
-  'monomial': 6,
   'chebyshev': 6, #0, 3
 }
 
 view_angle_defaults = {
-  'first': [50, 60],
-  'second': [50, 130],
-  'equal': [70, 210],
+  'first': [65, 60],
   'rotational': [70, 210],
-  'skew': [70, 210],
-  'monomial': [60, 30],
   'chebyshev': [60, 30],
 }
 
@@ -90,12 +69,7 @@ RAND_DIST = 'uniform'
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
-  'second': [(1, 0, 0), (1, 0, 1)],
-  'equal': [(0, 0, 1), (1, 0, 1)],
   'rotational': [(0, 0, 0), (1, 0, 0)],
-  'skew': [(0, 0, 1), (1, 0, 1)],
-  'resnet': [(0, 0, 0), (0, 0, 1)],
-  'monomial': [(0, 0, 1), (1, 0, 1)],
   'chebyshev': [(0, 0, 1), (1, 0, 1)],
 }
 
@@ -171,120 +145,46 @@ class Net:
     vi = self._get_forward_vals(x, y, i + eps, j)
     vj = self._get_forward_vals(x, y, i, j + eps)
 
-    (fdw1, fdz1i, fda1i, fdh1i, _, fdz2i, fda2i, fdh2i, fdli) = (vi - v) / eps
-    (_, _, _, _, fdw2, fdz2j, fda2j, fdh2j, fdlj) = (vj - v) / eps
+    fdi = (vi - v) / eps
+    fdj = (vj - v) / eps
 
-    (dw2, dz2j, da2j, dh2j, dlj) = grads_j
-    print("=== Grads j ===")
-    print('dw2', loss(dw2, fdw2))
-    print('dz2j', loss(dz2j, fdz2j))
-    print('da2j', loss(da2j, fda2j))
-    print('dh2j', loss(dh2j, fdh2j))
-    print('dlj', (dlj - fdlj)**2)
+    def print_diff(fd, grads, c):
+      print(f"=== Grads {c} ===")
+      for name, d, fd in zip([f"dw1{c}", f"dz1{c}", f"da1{c}", f"dh1{c}", f"dw2{c}", f"dz2{c}", f"da2{c}", f"dh2{c}", f"dl{c}"], fd, grads):
+        l = loss(d, fd) if isinstance(d, np.ndarray) else (d - fd)**2
+        print(name, l)
 
-    (dw1, dz1i, da1i, dh1i, dz2i, da2i, dh2i, dli) = grads_i
-    print("=== Grads i ===")
-    print('dw1', loss(dw1, fdw1))
-    print('dz1i', loss(dz1i, fdz1i))
-    print('da1i', loss(da1i, fda1i))
-    print('dh1i', loss(dh1i, fdh1i))
-    print('dz2i', loss(dz2i, fdz2i))
-    print('da2i', loss(da2i, fda2i))
-    print('dh2i', loss(dh2i, fdh2i))
-    print('dli', (dli - fdli)**2)
-    print()
+    print_diff(fdi, grads_i, 'i')
+    print_diff(fdj, grads_j, 'j')
 
   def _get_forward_vals(self, x, y, *free_params):
-    w_ = form_weights(*free_params, self.fixed, self.dist)
+    w_ = self.form_weights(*free_params, self.fixed)
 
     vals = _forward(x, w_, self.scaled, self.resnet)
     l = loss(vals[-1], y)
 
     return np.array([*vals, l])
 
-class ClassicalNet(Net):
-  def __init__(self, w, *args):
-    self.w = w
-    super().__init__(*args)
-
-  def backward(self, x, y, lr):
-
-    dw = [None] * 2
-
-    error = self.h2 - y
-
-    dw[1] = error @ apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet).T
-
-    dz2a1 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
-    da1z1 = self.a1 * (1 - self.a1)
-
-    dw[0] = dz2a1.T @ error * da1z1 @ x.T
-
-    dw[0] /= len(x[0])
-    dw[1] /= len(x[0])
-
-    if self.test_net:
-      positions = get_fixed_param_config(self.dist, self.num_free_params)
-      for e in itertools.product(*([[0, 1]] * 3)):
-        if positions[e[1]][e[0]][e[2]]:
-          self.w[e[0]][e[1], e[2]] -= lr * dw[e[0]][e[1], e[2]]
-      return
-
-    # Only update weights for non-fixed parameters
-    pos = parameter_positions[self.dist]
-    for _pos in pos:
-      if self.w[_pos[0]][_pos[1], _pos[2]] < -self.axis_size or self.w[_pos[0]][_pos[1], _pos[2]] > self.axis_size:
-        continue
-
-      self.w[_pos[0]][_pos[1], _pos[2]] -= lr * dw[_pos[0]][_pos[1], _pos[2]]
-
-      # If the same parameter appears twice on the diagonal, fix them to be the same
-      if _pos[1:3] == (0, 1):
-        self.w[_pos[0]][1, 0] -= lr * dw[_pos[0]][1, 0]
-
-        if self.dist == 'skew':
-          self.w[_pos[0]][1, 0] *= -1
-
-        diff = self.w[_pos[0]][0, 1] - self.w[_pos[0]][1, 0]
-        self.w[_pos[0]][0, 1] -= diff / 2
-        self.w[_pos[0]][1, 0] += diff / 2
-
-        if self.dist == 'skew':
-          self.w[_pos[0]][1, 0] *= -1
-
-  def get_parameters(self):
-    pos = parameter_positions[self.dist]
-    return self.w[pos[0][0]][pos[0][1], pos[0][2]], self.w[pos[1][0]][pos[1][1], pos[1][2]]
-
 class FunctionalNet(Net):
-  def __init__(self, i, j, dist, *args):
+  def __init__(self, i, j, dist, fixed, *args):
     self.i = i
     self.j = j
-    self.w = form_weights(i, j, [0]*6, dist)
-    super().__init__(dist, *args)
+    self.w = self.form_weights(i, j, fixed)
+    super().__init__(dist, fixed, *args)
     self.derivs = None
 
   def backward(self, x, y, lr):
-    if not self.derivs:
-      print("ERROR: Derivatives not defined")
-      return
 
     if self.i < -self.axis_size or self.i > self.axis_size or self.j < -self.axis_size or self.j > self.axis_size:
       return
 
-    d = {
-      'i': None,
-      'j': None
-    }
-
     # Derivative of functional matrix
-    dw1 = self.derivs[0](self.i)
-    dw2 = self.derivs[1](self.j)
+    dw1i = self.derivs['w1']['i'](self.i)
+    dw1j = self.derivs['w1']['j'](self.j)
+    dw2i = self.derivs['w2']['i'](self.i)
+    dw2j = self.derivs['w2']['j'](self.j)
 
     h1 = apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet)
-
-    dz2j = dw2 @ h1
-    dz1i = dw1 @ x
 
     da1z1 = self.a1 * (1 - self.a1)
     dh1a1 = deriv_scaling(self.scaled, self.resnet)
@@ -293,37 +193,43 @@ class FunctionalNet(Net):
     dh2a2 = 1
     dlh2 = self.h2 - y
 
-    da2j = da2z2 * dz2j if self.resnet else dz2j
-    dh2j = dh2a2 * da2j
-    d['j'] = dlh2 * dh2j
+    def dl_(dw1, dw2):
+      dz1 = dw1 @ x
 
-    da1i = da1z1 * dz1i
-    dh1i = dh1a1 * da1i
-    dz2i = dz2h1 @ dh1i
-    if self.resnet:
-      da2i = da2z2 * dz2i
-      dh2i = dh2a2 * da2i + dh1i
-    else:
-      da2i = dz2i
-      dh2i = dh2a2 * da2i
-    d['i'] = dlh2 * dh2i
+      da1 = da1z1 * dz1
+      dh1 = dh1a1 * da1
 
-    avg_dj = np.sum(d['j'].flatten()) / len(x[0])
-    avg_di = np.sum(d['i'].flatten()) / len(x[0])
+      dz2 = dw2 @ h1 + self.w[1] @ dh1
+      if self.resnet:
+        da2 = da2z2 * dz2
+        dh2 = dh2a2 * da2 + dh1
+      else:
+        da2 = dz2
+        dh2 = dh2a2 * da2
+
+      dl = dlh2 * dh2
+
+      avg_d = np.sum(dl.flatten()) / len(x[0])
+
+      return dw1, dz1, da1, dh1, dw2, dz2, da2, dh2, avg_d
+
+    grads_i = dl_(dw1i, dw2i)
+    grads_j = dl_(dw1j, dw2j)
 
     if CHECK_GRAD:
-      self.check_grad(x, y,
-                      grads_i=(dw1, dz1i, da1i, dh1i, dz2i, da2i, dh2i, avg_di),
-                      grads_j=(dw2, dz2j, da2j, dh2j, avg_dj))
+      self.check_grad(x, y, grads_i, grads_j)
 
-    self.j -= avg_dj * lr
-    self.i -= avg_di * lr
+    di = grads_i[-1]
+    dj = grads_j[-1]
+
+    self.i -= di * lr
+    self.j -= dj * lr
 
     dw_free = [None] * 2
     dw_free[1] = dlh2 @ h1.T
     dw_free[0] = dz2h1.T @ dlh2 * da1z1 @ x.T
 
-    new_w = form_weights(self.i, self.j, [0]*6, self.dist)
+    new_w = self.form_weights(self.i, self.j, self.fixed)
 
     if self.test_net:
       positions = get_fixed_param_config(self.dist, self.num_free_params)
@@ -338,43 +244,61 @@ class FunctionalNet(Net):
   def get_parameters(self):
     return self.i, self.j
 
+class FirstNet(FunctionalNet):
+  def __init__(self, *args):
+    super().__init__(*args)
+    self.derivs = {
+      'w1': {
+        'i': lambda a: matrix([1, 0, 0, 0]),
+        'j': lambda a: matrix([0, 1, 1, 0]),
+      },
+      'w2': {
+        'i': lambda a: np.zeros((2, 2)),
+        'j': lambda a: np.zeros((2, 2))
+      }
+    }
+
+  @staticmethod
+  def form_weights(i, j, fixed):
+    return matrix([i, j, j, fixed[0]]), matrix(fixed[1:5])
+
 class RotationalNet(FunctionalNet):
   def __init__(self, *args):
     super().__init__(*args)
-    d = lambda a: np.array([
-      [-np.sin(a), -np.cos(a)],
-      [np.cos(a), -np.sin(a)]
-    ])
-    self.derivs = [d, d]
-
-class MonomialNet(FunctionalNet):
-  def __init__(self, *args):
-    super().__init__(*args)
-
-    d = lambda a: np.array([
-      [0, 1],
-      [2*a, 3*(a**2)]
-    ])
-    self.derivs = [d, d]
+    self.derivs = {
+      'w1': {
+        'i': lambda a: matrix([-np.sin(a), -np.cos(a), np.cos(a), -np.sin(a)]),
+        'j': lambda a: np.zeros((2, 2)),
+      },
+      'w2': {
+        'i': lambda a: np.zeros((2, 2)),
+        'j': lambda a: matrix([-np.sin(a), -np.cos(a), np.cos(a), -np.sin(a)])
+      }
+    }
 
   @staticmethod
-  def form_weights(i, j):
-    l = lambda a: np.array([1, a, (a**2), (a**3)])
+  def form_weights(i, j, fixed):
+    l = lambda a: forward_diag([np.cos(a), -np.sin(a), np.sin(a)])
     return l(i), l(j)
 
 class ChebyshevNet(FunctionalNet):
   def __init__(self, *args):
     super().__init__(*args)
 
-    d = lambda a: np.array([
-      [0, 1],
-      [4*a, 12*(a**2) - 3]
-    ])
-    self.derivs = [d, d]
+    self.derivs = {
+      'w1': {
+        'i': lambda a: matrix([0, 1, 4*a, 12*(a**2) - 3]),
+        'j': lambda a: np.zeros((2, 2)),
+      },
+      'w2': {
+        'i': lambda a: np.zeros((2, 2)),
+        'j': lambda a: matrix([0, 1, 4*a, 12*(a**2) - 3])
+      }
+    }
 
   @staticmethod
-  def form_weights(i, j):
-    l = lambda a: np.array([1, a, 2*(a**2) - 1, 4*(a**3) - 3*a])
+  def form_weights(i, j, fixed):
+    l = lambda a: matrix([1, a, 2*(a**2) - 1, 4*(a**3) - 3*a])
     return l(i), l(j)
 
   def get_parameters(self):
@@ -395,7 +319,7 @@ def matrix(a):
 '''
   Distribute parameters i and j into 2x2 matrices, to form the weights.
 '''
-def form_weights(i, j, fixed, dist):
+def _form_weights(i, j, fixed, dist):
   weights = [[fixed[0], fixed[1], fixed[2]], [fixed[3], fixed[4], fixed[5]]]
   weights = list(map(lambda x: x/np.linalg.norm(x), weights))
 
@@ -428,11 +352,7 @@ def apply_scaling(m, scaled, resnet):
   return 2*m-1
 
 def deriv_scaling(scaled, resnet):
-  if not scaled:
-    return 1
-  if resnet:
-    return 2/3
-  return 2
+  return 1 if not scaled else 2/3 if resnet else 2
 
 def _forward(x, w, scaled, resnet):
   zeros = np.zeros(np.shape(x))
@@ -504,8 +424,8 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
 
   return sgd_path, losses, valid_losses, lrs
 
-def calc_loss(i, j, fixed, X, Y, dist, *args):
-  y_hat = forward(X, form_weights(i, j, fixed, dist), *args)[-1]
+def calc_loss(i, j, fixed, X, Y, Net, *args):
+  y_hat = forward(X, Net.form_weights(i, j, fixed), *args)[-1]
   return loss(y_hat, Y)
 
 def create_landscape(axis, *args):
@@ -514,12 +434,12 @@ def create_landscape(axis, *args):
 '''
   Plot 3D contours of the loss landscape
 '''
-def plot(i, j, fixed, X, Y, dist, scaled, resnet, axis_size, save, filepath, paths=None, plot_2d=False):
+def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, axis_size, save, filepath, paths=None, plot_2d=False):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
-  axis = np.arange(-axis_size, axis_size, axis_size/100)
-  landscape = create_landscape(axis, fixed, X, Y, dist, scaled, resnet)
+  axis = np.arange(-axis_size, axis_size, axis_size/10)
+  landscape = create_landscape(axis, fixed, X, Y, Net, scaled, resnet)
   Z = np.array(landscape)
   axis_x, axis_y = np.meshgrid(axis, axis)
 
@@ -623,7 +543,7 @@ def noise(Y, noise_sd):
   return Y + n
 
 nets = {
-  'monomial': MonomialNet,
+  'first': FirstNet,
   'chebyshev': ChebyshevNet,
   'rotational': RotationalNet,
 }
@@ -664,16 +584,17 @@ def run(weights_dist=WEIGHTS_DIST,
   fn = get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
                     axis_size, test_sd, scaled, resnet, lr_min, lr_max,
                     force_map_sgd, add_noise, noise_sd, rand_dist)
-  if save_plot and exists("{fn}.png"):
-    return
 
   np.random.seed(seeds[weights_dist])
 
   parameters = get_rand(2, parameter_sd, rand_dist)
   fixed = get_rand(6, parameter_sd, 'uniform')
 
+  Net = nets[weights_dist]
+  true_params = Net.form_weights(*parameters, fixed)
+
   X = get_rand((2, num_samples), sample_sd, rand_dist)
-  Y = forward(X, form_weights(*parameters, fixed, weights_dist), scaled, resnet)[-1]
+  Y = forward(X, true_params, scaled, resnet)[-1]
 
   path_inits = get_rand((NUM_RUNS, 2), axis_size * 0.9, 'uniform')
   sgd_paths = []
@@ -690,20 +611,18 @@ def run(weights_dist=WEIGHTS_DIST,
 
   if verbose:
     print("True params")
-    print(form_weights(*parameters, fixed, weights_dist))
+    print(true_params)
 
   valid_X = get_rand((2, num_samples), sample_sd, rand_dist)
-  valid_Y = forward(valid_X, form_weights(*parameters, fixed, weights_dist), scaled, resnet)[-1]
+  valid_Y = forward(valid_X, true_params, scaled, resnet)[-1]
   valid_Y = noise(valid_Y, noise_sd) if add_noise else valid_Y
 
   if PLOT_SGD:
     for path_init in path_inits:
       if sgd_same_point:
         path_init = starting_positions[weights_dist] # Start all from same point
-      if weights_dist not in nets:
-        model = ClassicalNet(form_weights(*path_init, fixed, weights_dist), weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
-      else:
-        model = nets[weights_dist](*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
+
+      model = Net(*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
       path, _losses, valid_losses, lrs = train(epochs, model, X, Y, valid_X, valid_Y, fixed, weights_dist,
                                               lr_min, lr_max, epochs,
                                               num_samples, batch_size,
@@ -723,7 +642,7 @@ def run(weights_dist=WEIGHTS_DIST,
 
         print((_losses[-1], valid_losses[-1]))
 
-  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, scaled, resnet, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
+  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, scaled, resnet, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
   if PLOT_LR: plot_lrs(lrs, plot_log=False)
 
@@ -741,9 +660,5 @@ def grid_search(**kwargs):
     run(**dict(zip(kwargs.keys(), e)), save_plot=True)
 
 if __name__ == '__main__':
-  # grid_search(
-  #   weights_dist=['first','second','equal','rotational','skew','chebyshev'],
-  #   resnet=[True, False],
-  #   last_activate=[True, False],
-  # )
-  run(weights_dist='rotational', resnet=True)
+  # first, rotational, chebyshev
+  run(weights_dist='first', resnet=True)

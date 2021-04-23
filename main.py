@@ -293,24 +293,20 @@ class FunctionalNet(Net):
     dh2a2 = 1
     dlh2 = self.h2 - y
 
-    if self.dist == 'rotational':
-      d['j'] = dlh2 @ dw2.T
-      d['i'] = dz2h1.T @ dlh2 * da1z1 @ dw1.T
-    else:
-      da2j = da2z2 * dz2j if self.resnet else dz2j
-      dh2j = dh2a2 * da2j
-      d['j'] = dlh2 * dh2j
+    da2j = da2z2 * dz2j if self.resnet else dz2j
+    dh2j = dh2a2 * da2j
+    d['j'] = dlh2 * dh2j
 
-      da1i = da1z1 * dz1i
-      dh1i = dh1a1 * da1i
-      dz2i = dz2h1 @ dh1i
-      if self.resnet:
-        da2i = da2z2 * dz2i
-        dh2i = dh2a2 * da2i + dh1i
-      else:
-        da2i = dz2i
-        dh2i = dh2a2 * da2i
-      d['i'] = dlh2 * dh2i
+    da1i = da1z1 * dz1i
+    dh1i = dh1a1 * da1i
+    dz2i = dz2h1 @ dh1i
+    if self.resnet:
+      da2i = da2z2 * dz2i
+      dh2i = dh2a2 * da2i + dh1i
+    else:
+      da2i = dz2i
+      dh2i = dh2a2 * da2i
+    d['i'] = dlh2 * dh2i
 
     avg_dj = np.sum(d['j'].flatten()) / len(x[0])
     avg_di = np.sum(d['i'].flatten()) / len(x[0])
@@ -751,4 +747,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='chebyshev', resnet=True, last_activate=True)
+  run(weights_dist='rotational', resnet=True, last_activate=True)

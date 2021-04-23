@@ -174,9 +174,10 @@ class ClassicalNet(Net):
 
     dw[1] = error @ apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet).T
 
-    w2 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
+    dz2a1 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
+    da1z1 = self.a1 * (1 - self.a1)
 
-    dw[0] = w2.T @ error * self.a1 * (1 - self.a1) @ x.T
+    dw[0] = dz2a1.T @ error * da1z1 @ x.T
 
     dw[0] /= len(x[0])
     dw[1] /= len(x[0])
@@ -238,24 +239,24 @@ class FunctionalNet(Net):
     error = self.a2 - y
 
     # Derivative of functional matrix
-    dw1 = self.derivs[0]
-    dw2 = self.derivs[1]
+    _dw1 = self.derivs[0]
+    _dw2 = self.derivs[1]
 
-    z1 = apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet)
+    h1 = apply_scaling(self.a1 + x if self.resnet else self.a1, self.scaled, self.resnet)
 
-    daj = dw2(self.j) @ z1
-    dz1 = dw1(self.i) @ x
+    dw2 = _dw2(self.j) @ h1
+    dw1 = _dw1(self.i) @ x
+
+    dz2a1 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
+    da1z1 = self.a1 * (1 - self.a1)
+
     if self.dist == 'rotational':
-      d['j'] = error @ daj.T
-
-      d['i'] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ dz1.T
+      d['j'] = error @ dw2.T
+      d['i'] = dz2a1.T @ error * da1z1 @ dw1.T
     else:
-      d['j'] = error * daj
-
-      da1 = self.a1 * (1 - self.a1) * dz1
-      dz2 = 2 * da1
-      w2 = self.w[1] + np.identity(2) if self.resnet else self.w[1]
-      da2 = w2 @ dz2
+      d['j'] = error * dw2
+      da1 = da1z1 * dw1
+      da2 = dz2a1 @ da1
       d['i'] = error * da2
 
     avg_dj = np.sum(d['j'].flatten()) / len(x[0])
@@ -265,8 +266,8 @@ class FunctionalNet(Net):
     self.i -= avg_di * lr
 
     dw_free = [None] * 2
-    dw_free[1] = error @ z1.T
-    dw_free[0] = self.w[1].T @ error * self.a1 * (1 - self.a1) @ x.T
+    dw_free[1] = error @ h1.T
+    dw_free[0] = dz2a1.T @ error * da1z1 @ x.T
 
     new_w = form_weights(self.i, self.j, [0]*6, self.dist)
 
@@ -376,14 +377,14 @@ def forward(x, w, scaled, resnet, last_activate):
   zeros = np.zeros(np.shape(x))
   skip = x if resnet else zeros
   a1 = sigmoid(w[0] @ x)
-  z1 = apply_scaling(a1 + skip, scaled, resnet)
+  h1 = apply_scaling(a1 + skip, scaled, resnet)
 
-  skip = z1 if resnet else zeros
+  skip = h1 if resnet else zeros
   if last_activate:
-    a2 = sigmoid(w[1] @ z1)
-    a2 = apply_scaling(a2 + skip, scaled, resnet)
+    a2 = sigmoid(w[1] @ h1)
+    h2 = apply_scaling(a2 + skip, scaled, resnet)
   else:
-    a2 = w[1] @ z1 + skip
+    a2 = w[1] @ h1 + skip
   return a1, a2
 
 def loss(y_hat, Y):
@@ -678,4 +679,4 @@ if __name__ == '__main__':
   #   resnet=[True, False],
   #   last_activate=[True, False],
   # )
-  run(weights_dist='monomial')
+  run(weights_dist='chebyshev', resnet=True)

@@ -104,7 +104,10 @@ fixed_param_config = {
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
 class Net:
-  def __init__(self, dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size):
+  def __init__(self, i, j, dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size):
+    self.i = i
+    self.j = j
+    self.w = self.form_weights(i, j, fixed)
     self.dist = dist
     self.fixed = fixed
     self.test_net = test_net
@@ -123,55 +126,6 @@ class Net:
       return self.h2
     else:
       return forward(x, self.w, self.scaled, self.resnet)[-1]
-
-  def backward(self, x, y, lr):
-    raise Exception("Backprop not implemented")
-
-  def get_parameters(self):
-    raise Exception("Get params not implemented")
-
-  def randomise_free_vars(self):
-    positions = get_fixed_param_config(self.dist, self.num_free_params)
-    for e in itertools.product(*([[0, 1]] * 3)):
-      if positions[e[1]][e[0]][e[2]]:
-        self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
-
-  def check_grad(self, x, y, grads_i=None, grads_j=None, eps=1e-6):
-    if not grads_i or not grads_j:
-      raise Exception("Grads required")
-    i, j = self.get_parameters()
-    v = self._get_forward_vals(x, y, i, j)
-    # Generate augmented weights based on new params
-    vi = self._get_forward_vals(x, y, i + eps, j)
-    vj = self._get_forward_vals(x, y, i, j + eps)
-
-    fdi = (vi - v) / eps
-    fdj = (vj - v) / eps
-
-    def print_diff(fd, grads, c):
-      print(f"=== Grads {c} ===")
-      for name, d, fd in zip([f"dw1{c}", f"dz1{c}", f"da1{c}", f"dh1{c}", f"dw2{c}", f"dz2{c}", f"da2{c}", f"dh2{c}", f"dl{c}"], fd, grads):
-        l = loss(d, fd) if isinstance(d, np.ndarray) else (d - fd)**2
-        print(name, l)
-
-    print_diff(fdi, grads_i, 'i')
-    print_diff(fdj, grads_j, 'j')
-
-  def _get_forward_vals(self, x, y, *free_params):
-    w_ = self.form_weights(*free_params, self.fixed)
-
-    vals = _forward(x, w_, self.scaled, self.resnet)
-    l = loss(vals[-1], y)
-
-    return np.array([*vals, l])
-
-class FunctionalNet(Net):
-  def __init__(self, i, j, dist, fixed, *args):
-    self.i = i
-    self.j = j
-    self.w = self.form_weights(i, j, fixed)
-    super().__init__(dist, fixed, *args)
-    self.derivs = None
 
   def backward(self, x, y, lr):
 
@@ -244,7 +198,42 @@ class FunctionalNet(Net):
   def get_parameters(self):
     return self.i, self.j
 
-class FirstNet(FunctionalNet):
+  def randomise_free_vars(self):
+    positions = get_fixed_param_config(self.dist, self.num_free_params)
+    for e in itertools.product(*([[0, 1]] * 3)):
+      if positions[e[1]][e[0]][e[2]]:
+        self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
+
+  def check_grad(self, x, y, grads_i=None, grads_j=None, eps=1e-6):
+    if not grads_i or not grads_j:
+      raise Exception("Grads required")
+    i, j = self.get_parameters()
+    v = self._get_forward_vals(x, y, i, j)
+    # Generate augmented weights based on new params
+    vi = self._get_forward_vals(x, y, i + eps, j)
+    vj = self._get_forward_vals(x, y, i, j + eps)
+
+    fdi = (vi - v) / eps
+    fdj = (vj - v) / eps
+
+    def print_diff(fd, grads, c):
+      print(f"=== Grads {c} ===")
+      for name, d, fd in zip([f"dw1{c}", f"dz1{c}", f"da1{c}", f"dh1{c}", f"dw2{c}", f"dz2{c}", f"da2{c}", f"dh2{c}", f"dl{c}"], fd, grads):
+        l = loss(d, fd) if isinstance(d, np.ndarray) else (d - fd)**2
+        print(name, l)
+
+    print_diff(fdi, grads_i, 'i')
+    print_diff(fdj, grads_j, 'j')
+
+  def _get_forward_vals(self, x, y, *free_params):
+    w_ = self.form_weights(*free_params, self.fixed)
+
+    vals = _forward(x, w_, self.scaled, self.resnet)
+    l = loss(vals[-1], y)
+
+    return np.array([*vals, l])
+
+class FirstNet(Net):
   def __init__(self, *args):
     super().__init__(*args)
     self.derivs = {
@@ -262,7 +251,7 @@ class FirstNet(FunctionalNet):
   def form_weights(i, j, fixed):
     return matrix([i, j, j, fixed[0]]), matrix(fixed[1:5])
 
-class RotationalNet(FunctionalNet):
+class RotationalNet(Net):
   def __init__(self, *args):
     super().__init__(*args)
     self.derivs = {
@@ -281,7 +270,7 @@ class RotationalNet(FunctionalNet):
     l = lambda a: forward_diag([np.cos(a), -np.sin(a), np.sin(a)])
     return l(i), l(j)
 
-class ChebyshevNet(FunctionalNet):
+class ChebyshevNet(Net):
   def __init__(self, *args):
     super().__init__(*args)
 
@@ -438,7 +427,7 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, axis_size, save, filepath
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
-  axis = np.arange(-axis_size, axis_size, axis_size/10)
+  axis = np.arange(-axis_size, axis_size, axis_size/50)
   landscape = create_landscape(axis, fixed, X, Y, Net, scaled, resnet)
   Z = np.array(landscape)
   axis_x, axis_y = np.meshgrid(axis, axis)

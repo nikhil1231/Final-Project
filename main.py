@@ -11,6 +11,8 @@ PLOT_LOSSES = False
 PLOT_LR = False
 PLOT_SCATTER = False
 
+CHECK_GRAD = False
+
 TEST_NET = False
 NUM_FREE_PARAMS = 8
 FORCE_MAP_SGD = False
@@ -309,9 +311,10 @@ class FunctionalNet(Net):
     avg_dj = np.sum(d['j'].flatten()) / len(x[0])
     avg_di = np.sum(d['i'].flatten()) / len(x[0])
 
-    self.check_grad(x, y,
-                    grads_i=(dw1, dz1i, da1i, dh1i, dz2i, da2i, dh2i, avg_di),
-                    grads_j=(dw2, dz2j, da2j, dh2j, avg_dj))
+    if CHECK_GRAD:
+      self.check_grad(x, y,
+                      grads_i=(dw1, dz1i, da1i, dh1i, dz2i, da2i, dh2i, avg_di),
+                      grads_j=(dw2, dz2j, da2j, dh2j, avg_dj))
 
     self.j -= avg_dj * lr
     self.i -= avg_di * lr

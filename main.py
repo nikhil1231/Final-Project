@@ -267,7 +267,7 @@ class RotationalNet(Net):
 
   @staticmethod
   def form_weights(i, j, fixed):
-    l = lambda a: forward_diag([np.cos(a), -np.sin(a), np.sin(a)])
+    l = lambda a: matrix([np.cos(a), -np.sin(a), np.sin(a), np.cos(a)])
     return l(i), l(j)
 
 class ChebyshevNet(Net):
@@ -293,45 +293,8 @@ class ChebyshevNet(Net):
   def get_parameters(self):
     return self.w[0][0, 1], self.w[1][0, 1]
 
-def diag(a):
-  return np.array([[a[0], a[1]], [a[1], a[2]]])
-
-def forward_diag(a):
-  return np.array([[a[0], a[1]], [a[2], a[0]]])
-
-def skew_symmetric(i):
-  return np.array([[0, i], [-i, 0]])
-
 def matrix(a):
   return np.array([[a[0], a[1]], [a[2], a[3]]])
-
-'''
-  Distribute parameters i and j into 2x2 matrices, to form the weights.
-'''
-def _form_weights(i, j, fixed, dist):
-  weights = [[fixed[0], fixed[1], fixed[2]], [fixed[3], fixed[4], fixed[5]]]
-  weights = list(map(lambda x: x/np.linalg.norm(x), weights))
-
-  if dist == 'rotational':
-    weights = [np.cos(i), -np.sin(i), np.sin(i)], [np.cos(j), -np.sin(j), np.sin(j)]
-    return list(map(lambda x: forward_diag(x), weights))
-
-  elif dist == 'monomial':
-    weights = MonomialNet.form_weights(i, j)
-    return list(map(lambda x: matrix(x), weights))
-
-  elif dist == 'chebyshev':
-    weights = ChebyshevNet.form_weights(i, j)
-    return list(map(lambda x: matrix(x), weights))
-
-  elif dist == 'skew':
-    return [skew_symmetric(i), skew_symmetric(j)]
-  else:
-    pos = parameter_positions[dist]
-    weights[pos[0][0]][pos[0][1] + pos[0][2]] = i
-    weights[pos[1][0]][pos[1][1] + pos[1][2]] = j
-
-  return list(map(lambda x: diag(x), weights))
 
 def apply_scaling(m, scaled, resnet):
   if not scaled:

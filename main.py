@@ -2,7 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import itertools, functools, operator
-from os.path import exists
+from multiprocessing import Pool
+import tqdm
 
 PLOT_SURFACE = True
 PLOT_2D = False
@@ -608,25 +609,25 @@ def run(weights_dist=WEIGHTS_DIST,
       # Use valid parameters to generate valid labels
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
 
+def starmap_kwargs(pool, f, kwargs):
+  f_kwargs = zip(itertools.repeat(f), kwargs)
+  for _ in tqdm.tqdm(pool.imap_unordered(apply_kwargs, f_kwargs), total=len(kwargs)):
+    pass
+
+def apply_kwargs(f_kwargs):
+  f, kwargs = f_kwargs
+  return f(save_plot=True, **kwargs)
+
 def grid_search(**kwargs):
-  i = 0
-  l = functools.reduce(operator.mul, map(len, kwargs.values()), 1)
-  for e in itertools.product(*kwargs.values()):
-    i += 1
-    print(f"Running {i}/{l}", end='\r')
-    run(**dict(zip(kwargs.keys(), e)), save_plot=True)
+  arg_set = list(map(lambda args: dict(zip(kwargs.keys(), args)), itertools.product(*kwargs.values())))
+  with Pool() as pool:
+    starmap_kwargs(pool, run, arg_set)
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
   # run(weights_dist='chebyshev', batch_size=10, num_samples=1000, epochs=100, lr_max=0.1, sgd_same_point=True, force_map_sgd=True, test_net=True, num_free_params=6)
 
-  grid_search(weights_dist=['chebyshev'],
-              batch_size=[1, 10],
-              num_samples=[100, 1000],
-              sgd_same_point=[True],
-              test_net=[True],
-              num_free_params=[2, 6],
-              force_map_sgd=[True],
+  grid_search(weights_dist=['chebyshev', 'first', 'rotational'],
               epochs=[100],
-              lr_max=[0.3],
-              subfolder=['batch'])
+              lr_max=[0.1, 0.2, 0.3, 0.4, 0.5],
+              subfolder=['tmp'])

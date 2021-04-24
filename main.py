@@ -11,7 +11,7 @@ PLOT_LOSSES = False
 PLOT_LR = False
 PLOT_SCATTER = False
 
-CHECK_GRAD = True
+CHECK_GRAD = False
 
 TEST_NET = False
 NUM_FREE_PARAMS = 8
@@ -43,7 +43,8 @@ dimension_defaults = {
 }
 
 starting_positions = {
-  'rotational': [-0.5, -0.6],
+  'first': [-3, -3],
+  'rotational': [-1, 3],
   'chebyshev': [-0.5, -0.6],
 }
 
@@ -61,7 +62,7 @@ seeds = {
 
 view_angle_defaults = {
   'first': [65, 60],
-  'rotational': [70, 210],
+  'rotational': [75, 210],
   'chebyshev': [60, 30],
 }
 
@@ -69,7 +70,7 @@ RAND_DIST = 'uniform'
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
-  'rotational': [(0, 0, 0), (1, 0, 0)],
+  'rotational': [],
   'chebyshev': [(0, 0, 1), (1, 0, 1)],
 }
 
@@ -91,7 +92,7 @@ fixed_param_config = {
     [[1, 1], [0, 0]],
     [[1, 0], [0, 0]],
   ],
-  'chebyshev4': [
+  'chebyshev2': [
     [[0, 0], [0, 0]],
     [[0, 1], [0, 1]],
   ],
@@ -163,7 +164,7 @@ class Net:
 
       dl = dlh2 * dh2
 
-      avg_d = np.sum(dl.flatten()) / len(x[0])
+      avg_d = np.mean(dl)
 
       return dw1, dz1, da1, dh1, dw2, dz2, da2, dh2, avg_d
 
@@ -199,9 +200,12 @@ class Net:
     return self.i, self.j
 
   def randomise_free_vars(self):
+    if self.dist == 'rotational':
+      return
     positions = get_fixed_param_config(self.dist, self.num_free_params)
+    params_pos = parameter_positions[self.dist]
     for e in itertools.product(*([[0, 1]] * 3)):
-      if positions[e[1]][e[0]][e[2]]:
+      if positions[e[1]][e[0]][e[2]] and e not in params_pos:
         self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
 
   def check_grad(self, x, y, grads_i=None, grads_j=None, eps=1e-6):
@@ -344,13 +348,13 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
   lrs = []
 
   for epoch in range(epochs):
+    lr = anneal_lr(epoch + 1, lr_min, lr_max, max_epochs)
+    lrs.append(lr)
     for _ in range(num_samples // batch_size):
       idx = np.random.choice(np.arange(num_samples), batch_size, replace=False)
 
       batchx = X[:,idx]
       batchy = Y[:,idx]
-
-      lr = anneal_lr(epoch, lr_min, lr_max, max_epochs)
 
       m.forward(batchx)
 
@@ -360,7 +364,7 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
       new_params = m.get_parameters()
 
       if test_net and force_map_sgd:
-        y_hat = forward(X, form_weights(*new_params, fixed, dist), scaled, resnet)[-1]
+        y_hat = forward(X, nets[dist].form_weights(*new_params, fixed), scaled, resnet)[-1]
       else:
         y_hat = m.forward(X, grad=False)
       new_loss = loss(y_hat, Y)
@@ -372,7 +376,6 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
       sgd_path.append(path)
       losses.append(new_loss)
       valid_losses.append(valid_loss)
-      lrs.append(lr)
 
   return sgd_path, losses, valid_losses, lrs
 
@@ -443,10 +446,11 @@ def get_fixed_param_config(dist, n):
 
 def get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
                   axis_size, test_sd, scaled, resnet, lr_min, lr_max,
-                  force_map_sgd, add_noise, noise_sd, rand_dist):
-  return f"{FOLDER}/{weights_dist}_SGD{PLOT_SGD}_E{epochs}_T{test_net}_NFP{num_free_params}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
-_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}_RN{resnet}\
-_LR{lr_min}-{lr_max}_FM{force_map_sgd}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}"
+                  force_map_sgd, add_noise, noise_sd, rand_dist, subfolder):
+  sf = f"/{subfolder}" if subfolder else ''
+  return f"{FOLDER}{sf}/{weights_dist}_T{test_net}_NFP{num_free_params}_FM{force_map_sgd}_RN{resnet}_E{epochs}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
+_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}\
+_LR{lr_min}-{lr_max}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}_SGD{PLOT_SGD}"
 
 def plot_scatter(scatters, y=False, filename=None):
   plt.clf()
@@ -520,6 +524,7 @@ def run(weights_dist=WEIGHTS_DIST,
         rand_dist=RAND_DIST,
         sgd_same_point=False,
         save_plot=False,
+        subfolder=None,
         verbose=False):
 
   if parameter_sd is None:
@@ -535,7 +540,7 @@ def run(weights_dist=WEIGHTS_DIST,
 
   fn = get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
                     axis_size, test_sd, scaled, resnet, lr_min, lr_max,
-                    force_map_sgd, add_noise, noise_sd, rand_dist)
+                    force_map_sgd, add_noise, noise_sd, rand_dist, subfolder)
 
   np.random.seed(seeds[weights_dist])
 
@@ -589,14 +594,14 @@ def run(weights_dist=WEIGHTS_DIST,
         print(model.get_parameters())
         print(model.w)
 
-      if test_net:
-        scatters.append(model.forward(X, grad=False))
+        if test_net:
+          scatters.append(model.forward(X, grad=False))
 
-        print((_losses[-1], valid_losses[-1]))
+          print((_losses[-1], valid_losses[-1]))
 
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, scaled, resnet, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
-  if PLOT_LR: plot_lrs(lrs, plot_log=False)
+  if PLOT_LR and not save_plot: plot_lrs(lrs, plot_log=False)
 
   if test_net:
     if PLOT_SCATTER:
@@ -613,4 +618,15 @@ def grid_search(**kwargs):
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  run(weights_dist='first', resnet=True)
+  # run(weights_dist='chebyshev', batch_size=10, num_samples=1000, epochs=100, lr_max=0.1, sgd_same_point=True, force_map_sgd=True, test_net=True, num_free_params=6)
+
+  grid_search(weights_dist=['chebyshev'],
+              batch_size=[1, 10],
+              num_samples=[100, 1000],
+              sgd_same_point=[True],
+              test_net=[True],
+              num_free_params=[2, 6],
+              force_map_sgd=[True],
+              epochs=[100],
+              lr_max=[0.3],
+              subfolder=['batch'])

@@ -6,7 +6,7 @@ from concurrent.futures import ProcessPoolExecutor as Pool
 import tqdm
 
 PLOT_SURFACE = True
-PLOT_2D = False
+PLOT_2D = True
 PLOT_SGD = True
 PLOT_LOSSES = False
 PLOT_LR = False
@@ -18,7 +18,7 @@ TEST_NET = False
 NUM_FREE_PARAMS = 8
 FORCE_MAP_SGD = False
 
-NUM_RUNS = 3
+NUM_RUNS = 5
 NUM_SAMPLES = 1000
 BATCH_SIZE = 10
 
@@ -31,7 +31,7 @@ LR_MIN = 0.001
 LR_MAX = 0.03
 EPOCHS = 15
 
-COLORS = ['r', 'b', 'g', 'c', 'm', 'brown'] * 5
+COLORS = ['r', 'b', 'g', 'brown', 'm', 'darkviolet'] * 5
 
 FOLDER = 'figs'
 
@@ -405,22 +405,27 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, true_loss, axis_size, sav
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
-  axis = np.arange(-axis_size, axis_size, axis_size/50)
+  ax_max = axis_size
+  ax_min = -axis_size
+
+  if paths:
+    ax_max = max(ax_max, max(max((x, y) for path in paths for (x, y, _) in path)))
+    ax_min = min(ax_min, min(min((x, y) for path in paths for (x, y, _) in path)))
+
+  axis = np.arange(ax_min, ax_max, axis_size/10)
   landscape = create_landscape(axis, fixed, X, Y, Net, scaled, resnet)
   Z = np.array(landscape)
   axis_x, axis_y = np.meshgrid(axis, axis)
 
-  ax.plot_surface(axis_x, axis_y, Z, cmap=cm.terrain, linewidth=0, alpha=0.7)
+  ax.plot_surface(axis_x, axis_y, Z, cmap=cm.terrain, linewidth=0, alpha=0.6)
   ax.scatter(i, j, 0, marker='x', s=150, color='black')
   if true_loss:
     ax.scatter(i, j, true_loss, marker='+', s=150, color='black')
   if paths:
-    for i, path in enumerate(paths):
-      ax.plot(*zip(*path), color=COLORS[i])
-      ax.scatter(*path[-1], marker='o', color=COLORS[i])
+    for idx, path in enumerate(paths):
+      ax.plot(*zip(*path), color=COLORS[idx])
+      ax.scatter(*path[-1], marker='o', color=COLORS[idx])
 
-  plt.xlim([-axis_size, axis_size])
-  plt.ylim([-axis_size, axis_size])
   ax.axes.set_zlim3d([0, np.max(Z)])
   plt.xlabel('α')
   plt.ylabel('β')
@@ -446,9 +451,6 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, true_loss, axis_size, sav
         xs, ys = params[0], params[1]
         plt.plot(xs, ys, color=COLORS[i])
         plt.scatter(xs[-1], ys[-1], color=COLORS[i], marker='o')
-
-    plt.xlim([-axis_size, axis_size])
-    plt.ylim([-axis_size, axis_size])
 
     if save:
       plt.savefig(f"{filepath}_2D.png")
@@ -490,6 +492,28 @@ def plot_lrs(lrs, plot_log=True):
   plt.xlabel('Epochs')
   plt.ylabel('Learning rate (ηt)')
   plt.show()
+
+def print_weights(ws, dist, nfp, true=False):
+  col = lambda x, c: f"\\textcolor{{{c}}}{{{x}}}"
+  params_pos = parameter_positions[dist]
+  free_params = get_fixed_param_config(dist, nfp)
+
+  def f(i, j, k):
+    x = round(ws[i][j, k], 3)
+
+    if (i, j, k) == params_pos[0]:
+      return col(x, 'orange')
+    elif (i, j, k) == params_pos[1]:
+      return col(x, 'magenta')
+    elif free_params[j][i][k] and not True:
+      return col(x, 'cyan')
+    return x
+
+  for i in range(2):
+    print('\\begin{bmatrix}')
+    print(f"  {f(i, 0, 0)} & {f(i, 0, 1)} \\\\")
+    print(f"  {f(i, 1, 0)} & {f(i, 1, 1)}")
+    print('\\end{bmatrix}')
 
 def get_rand(shape, sd, dist):
   if dist == 'normal':
@@ -571,7 +595,7 @@ def run(weights_dist=WEIGHTS_DIST,
 
   if verbose:
     print("True params")
-    print(true_params)
+    print_weights(true_params, weights_dist, num_free_params, true=True)
     print("Eigenvalues", np.linalg.eigvals(true_params[1]))
 
   valid_X = get_rand((2, num_samples), sample_sd, rand_dist)
@@ -595,12 +619,12 @@ def run(weights_dist=WEIGHTS_DIST,
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
 
 def run_sgd_multi(path_inits, *args):
-  arg_set = [[p] + list(args) for p in path_inits]
+  arg_set = [[i, p] + list(args) for i, p in enumerate(path_inits)]
   with Pool() as pool:
     runs = list(starmap_kwargs(pool, run_sgd, args_iter=arg_set, kw=False))
   return zip(*runs)
 
-def run_sgd(path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_dist, test_net, num_free_params,
+def run_sgd(i, path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_dist, test_net, num_free_params,
             lr_min, lr_max,
             num_samples, batch_size,
             parameter_sd, axis_size,
@@ -614,12 +638,12 @@ def run_sgd(path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_dist,
                                           scaled, resnet)
 
   if verbose:
-    print("\nNew params")
-    print(model.get_parameters())
-    print(model.w)
+    print(f"\nRun {i+1}")
+    print("Params", model.get_parameters())
+    print_weights(model.w, weights_dist, num_free_params)
 
     if test_net:
-      print((loss_run[-1], valid_loss_run[-1]))
+      print("Training loss, validation loss", (loss_run[-1], valid_loss_run[-1]))
 
   scatter = model.forward(X, grad=False)
   return path, loss_run, valid_loss_run, lrs, scatter
@@ -643,9 +667,11 @@ def grid_search(**kwargs):
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  run(weights_dist='chebyshev', noise_sd=0.2, num_runs=10)
+  # run(weights_dist='chebyshev', noise_sd=0.2, num_runs=5, test_net=True, num_free_params=2)
 
-  # grid_search(weights_dist=['chebyshev', 'first', 'rotational'],
-  #             epochs=[100],
-  #             lr_max=[0.1, 0.2, 0.3, 0.4, 0.5],
-  #             subfolder=['tmp'])
+  grid_search(weights_dist=['chebyshev'],
+              lr_max=[0.1],
+              # noise_sd=[0.2],
+              test_net=[True],
+              num_free_params=[2, 6],
+              subfolder=['unstructured'])

@@ -339,7 +339,7 @@ def anneal_lr(epoch, lr_min, lr_max, max_epochs):
   return lr_min + 0.5 * (lr_max - lr_min) * (1 + np.cos(np.pi * epoch / max_epochs))
 
 def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
-          lr_min, lr_max, max_epochs,
+          lr_min, lr_max,
           num_samples, batch_size,
           test_net, force_map_sgd,
           scaled, resnet):
@@ -349,7 +349,7 @@ def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
   lrs = []
 
   for epoch in range(epochs):
-    lr = anneal_lr(epoch + 1, lr_min, lr_max, max_epochs)
+    lr = anneal_lr(epoch + 1, lr_min, lr_max, epochs)
     lrs.append(lr)
     for _ in range(num_samples // batch_size):
       idx = np.random.choice(np.arange(num_samples), batch_size, replace=False)
@@ -511,6 +511,7 @@ def run(weights_dist=WEIGHTS_DIST,
         num_free_params=NUM_FREE_PARAMS,
         num_samples=NUM_SAMPLES,
         batch_size=BATCH_SIZE,
+        num_runs=NUM_RUNS,
         parameter_sd=None,
         sample_sd=None,
         axis_size=None,
@@ -557,12 +558,7 @@ def run(weights_dist=WEIGHTS_DIST,
   X = get_rand((2, num_samples), sample_sd, rand_dist)
   Y = forward(X, true_params, scaled, resnet)[-1]
 
-  path_inits = get_rand((NUM_RUNS, 2), axis_size * 0.9, 'uniform')
-  sgd_paths = []
-  losses = []
-  lrs = []
-  scatters = []
-  valid_loss_runs = []
+  path_inits = [starting_positions[weights_dist]] * num_runs if sgd_same_point else get_rand((num_runs, 2), axis_size * 0.9, 'uniform')
 
   if PLOT_SCATTER:
     plot_scatter(X, filename=f"{fn}_SCAT-X.png")
@@ -580,29 +576,11 @@ def run(weights_dist=WEIGHTS_DIST,
   valid_Y = noise(valid_Y, noise_sd) if add_noise else valid_Y
 
   if PLOT_SGD:
-    for path_init in path_inits:
-      if sgd_same_point:
-        path_init = starting_positions[weights_dist] # Start all from same point
-
-      model = Net(*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
-      path, _losses, valid_losses, lrs = train(epochs, model, X, Y, valid_X, valid_Y, fixed, weights_dist,
-                                              lr_min, lr_max, epochs,
-                                              num_samples, batch_size,
-                                              test_net, force_map_sgd,
-                                              scaled, resnet)
-      sgd_paths.append(path)
-      losses.append(_losses)
-      valid_loss_runs.append(valid_losses)
-
-      if verbose:
-        print("\nNew params")
-        print(model.get_parameters())
-        print(model.w)
-
-        if test_net:
-          scatters.append(model.forward(X, grad=False))
-
-          print((_losses[-1], valid_losses[-1]))
+    sgd_paths, loss_runs, valid_loss_runs, lrs, scatters = run_sgd_multi(path_inits, Net, epochs, X, Y, valid_X, valid_Y,
+                                                                        fixed, weights_dist, test_net, num_free_params,
+                                                                        lr_min, lr_max, num_samples, batch_size,
+                                                                        parameter_sd, axis_size,
+                                                                        force_map_sgd, scaled, resnet, verbose)
 
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, scaled, resnet, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
@@ -612,6 +590,34 @@ def run(weights_dist=WEIGHTS_DIST,
     if PLOT_SCATTER:
       # Use valid parameters to generate valid labels
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
+
+def run_sgd_multi(path_inits, *args):
+  runs = [run_sgd(path_init, *args) for path_init in path_inits]
+  return zip(*runs)
+
+def run_sgd(path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_dist, test_net, num_free_params,
+            lr_min, lr_max,
+            num_samples, batch_size,
+            parameter_sd, axis_size,
+            force_map_sgd, scaled, resnet, verbose):
+
+  model = Net(*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
+  path, loss_run, valid_loss_run, lrs = train(epochs, model, X, Y, valid_X, valid_Y, fixed, weights_dist,
+                                          lr_min, lr_max,
+                                          num_samples, batch_size,
+                                          test_net, force_map_sgd,
+                                          scaled, resnet)
+
+  if verbose:
+    print("\nNew params")
+    print(model.get_parameters())
+    print(model.w)
+
+    if test_net:
+      print((loss_run[-1], valid_loss_run[-1]))
+
+  scatter = model.forward(X, grad=False)
+  return path, loss_run, valid_loss_run, lrs, scatter
 
 def starmap_kwargs(pool, f, kwargs):
   f_kwargs = zip(itertools.repeat(f), kwargs)
@@ -629,7 +635,7 @@ def grid_search(**kwargs):
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  run(weights_dist='first')
+  run(weights_dist='chebyshev', sgd_same_point=True, batch_size=1)
 
   # grid_search(weights_dist=['chebyshev', 'first', 'rotational'],
   #             epochs=[100],

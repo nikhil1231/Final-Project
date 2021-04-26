@@ -548,6 +548,9 @@ def run(weights_dist=WEIGHTS_DIST,
   parameters = get_rand(2, parameter_sd, rand_dist)
   fixed = get_rand(6, parameter_sd, 'uniform')
 
+  # Hard-code values for W_2
+  # fixed[1:5] = [1, 0.001, 0.001, 0.002]
+
   Net = nets[weights_dist]
   true_params = Net.form_weights(*parameters, fixed)
 
@@ -570,6 +573,7 @@ def run(weights_dist=WEIGHTS_DIST,
   if verbose:
     print("True params")
     print(true_params)
+    print("Eigenvalues", np.linalg.eigvals(true_params[1]))
 
   valid_X = get_rand((2, num_samples), sample_sd, rand_dist)
   valid_Y = forward(valid_X, true_params, scaled, resnet)[-1]
@@ -625,9 +629,9 @@ def grid_search(**kwargs):
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  # run(weights_dist='chebyshev', batch_size=10, num_samples=1000, epochs=100, lr_max=0.1, sgd_same_point=True, force_map_sgd=True, test_net=True, num_free_params=6)
+  run(weights_dist='first')
 
-  grid_search(weights_dist=['chebyshev', 'first', 'rotational'],
-              epochs=[100],
-              lr_max=[0.1, 0.2, 0.3, 0.4, 0.5],
-              subfolder=['tmp'])
+  # grid_search(weights_dist=['chebyshev', 'first', 'rotational'],
+  #             epochs=[100],
+  #             lr_max=[0.1, 0.2, 0.3, 0.4, 0.5],
+  #             subfolder=['tmp'])

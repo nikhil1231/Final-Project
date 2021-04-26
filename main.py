@@ -25,8 +25,7 @@ BATCH_SIZE = 10
 WEIGHTS_DIST = 'chebyshev'
 RESNET = False
 
-ADD_NOISE = False
-NOISE_SD = 0.05
+NOISE_SD = 0.0
 
 LR_MIN = 0.001
 LR_MAX = 0.03
@@ -387,10 +386,22 @@ def calc_loss(i, j, fixed, X, Y, Net, *args):
 def create_landscape(axis, *args):
   return [[calc_loss(i, j, *args) for i in axis] for j in axis]
 
+def get_fixed_param_config(dist, n):
+  d = '8' if n == 8 else dist + str(n)
+  return fixed_param_config[d]
+
+def get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
+                  axis_size, test_sd, scaled, resnet, lr_min, lr_max,
+                  force_map_sgd, noise_sd, rand_dist, subfolder):
+  sf = f"/{subfolder}" if subfolder else ''
+  return f"{FOLDER}{sf}/{weights_dist}_T{test_net}_NFP{num_free_params}_FM{force_map_sgd}_RN{resnet}_E{epochs}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
+_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}\
+_LR{lr_min}-{lr_max}_NSD{noise_sd}_RD{rand_dist}_SGD{PLOT_SGD}"
+
 '''
   Plot 3D contours of the loss landscape
 '''
-def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, axis_size, save, filepath, paths=None, plot_2d=False):
+def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, true_loss, axis_size, save, filepath, paths=None, plot_2d=False):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
@@ -401,6 +412,8 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, axis_size, save, filepath
 
   ax.plot_surface(axis_x, axis_y, Z, cmap=cm.terrain, linewidth=0, alpha=0.7)
   ax.scatter(i, j, 0, marker='x', s=150, color='black')
+  if true_loss:
+    ax.scatter(i, j, true_loss, marker='+', s=150, color='black')
   if paths:
     for i, path in enumerate(paths):
       ax.plot(*zip(*path), color=COLORS[i])
@@ -426,6 +439,7 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, axis_size, save, filepath
   if plot_2d:
     plt.clf()
     plt.contour(axis, axis, landscape, levels=20, cmap=cm.terrain)
+    plt.scatter(i, j, marker='x', s=150, color='black')
     if paths:
       for i, path in enumerate(paths):
         params = list(zip(*path))
@@ -440,18 +454,6 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, axis_size, save, filepath
       plt.savefig(f"{filepath}_2D.png")
     else:
       plt.show()
-
-def get_fixed_param_config(dist, n):
-  d = '8' if n == 8 else dist + str(n)
-  return fixed_param_config[d]
-
-def get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
-                  axis_size, test_sd, scaled, resnet, lr_min, lr_max,
-                  force_map_sgd, add_noise, noise_sd, rand_dist, subfolder):
-  sf = f"/{subfolder}" if subfolder else ''
-  return f"{FOLDER}{sf}/{weights_dist}_T{test_net}_NFP{num_free_params}_FM{force_map_sgd}_RN{resnet}_E{epochs}_NS{num_samples}_BS{batch_size}_PSD{parameter_sd}\
-_SSD{round(sample_sd, 2)}_AX{round(axis_size, 2)}_TSD{test_sd}_S{scaled}\
-_LR{lr_min}-{lr_max}_N{add_noise}_NSD{noise_sd}_RD{rand_dist}_SGD{PLOT_SGD}"
 
 def plot_scatter(scatters, y=False, filename=None):
   plt.clf()
@@ -521,7 +523,6 @@ def run(weights_dist=WEIGHTS_DIST,
         lr_min=LR_MIN,
         lr_max=LR_MAX,
         force_map_sgd=FORCE_MAP_SGD,
-        add_noise=ADD_NOISE,
         noise_sd=NOISE_SD,
         rand_dist=RAND_DIST,
         sgd_same_point=False,
@@ -542,7 +543,7 @@ def run(weights_dist=WEIGHTS_DIST,
 
   fn = get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
                     axis_size, test_sd, scaled, resnet, lr_min, lr_max,
-                    force_map_sgd, add_noise, noise_sd, rand_dist, subfolder)
+                    force_map_sgd, noise_sd, rand_dist, subfolder)
 
   np.random.seed(seeds[weights_dist])
 
@@ -564,7 +565,9 @@ def run(weights_dist=WEIGHTS_DIST,
     plot_scatter(X, filename=f"{fn}_SCAT-X.png")
     plot_scatter([Y], True, f"{fn}_SCAT-Y.png")
 
-  Y = noise(Y, noise_sd) if add_noise else Y
+  Y_noise = noise(Y, noise_sd)
+  true_loss = loss(Y, Y_noise)
+  Y = Y_noise
 
   if verbose:
     print("True params")
@@ -573,7 +576,7 @@ def run(weights_dist=WEIGHTS_DIST,
 
   valid_X = get_rand((2, num_samples), sample_sd, rand_dist)
   valid_Y = forward(valid_X, true_params, scaled, resnet)[-1]
-  valid_Y = noise(valid_Y, noise_sd) if add_noise else valid_Y
+  valid_Y = noise(valid_Y, noise_sd)
 
   if PLOT_SGD:
     sgd_paths, loss_runs, valid_loss_runs, lrs, scatters = run_sgd_multi(path_inits, Net, epochs, X, Y, valid_X, valid_Y,
@@ -582,7 +585,7 @@ def run(weights_dist=WEIGHTS_DIST,
                                                                         parameter_sd, axis_size,
                                                                         force_map_sgd, scaled, resnet, verbose)
 
-  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, scaled, resnet, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
+  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, scaled, resnet, true_loss, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
   if PLOT_LR and not save_plot: plot_lrs(lrs, plot_log=False)
 
@@ -640,7 +643,7 @@ def grid_search(**kwargs):
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  run(weights_dist='chebyshev', sgd_same_point=True, batch_size=1, num_runs=10)
+  run(weights_dist='chebyshev', noise_sd=0.2, num_runs=10)
 
   # grid_search(weights_dist=['chebyshev', 'first', 'rotational'],
   #             epochs=[100],

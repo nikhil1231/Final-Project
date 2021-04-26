@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import itertools, functools, operator
-from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor as Pool
 import tqdm
 
 PLOT_SURFACE = True
@@ -32,7 +32,7 @@ LR_MIN = 0.001
 LR_MAX = 0.03
 EPOCHS = 15
 
-COLORS = ['r', 'b', 'g', 'c', 'm', 'brown']
+COLORS = ['r', 'b', 'g', 'c', 'm', 'brown'] * 5
 
 FOLDER = 'figs'
 
@@ -592,7 +592,9 @@ def run(weights_dist=WEIGHTS_DIST,
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
 
 def run_sgd_multi(path_inits, *args):
-  runs = [run_sgd(path_init, *args) for path_init in path_inits]
+  arg_set = [[p] + list(args) for p in path_inits]
+  with Pool() as pool:
+    runs = list(starmap_kwargs(pool, run_sgd, args_iter=arg_set, kw=False))
   return zip(*runs)
 
 def run_sgd(path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_dist, test_net, num_free_params,
@@ -619,23 +621,26 @@ def run_sgd(path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_dist,
   scatter = model.forward(X, grad=False)
   return path, loss_run, valid_loss_run, lrs, scatter
 
-def starmap_kwargs(pool, f, kwargs):
-  f_kwargs = zip(itertools.repeat(f), kwargs)
-  for _ in tqdm.tqdm(pool.imap_unordered(apply_kwargs, f_kwargs), total=len(kwargs)):
-    pass
+def starmap_kwargs(pool, f, args_iter=[], kwargs_iter={}, kw=True):
+  if kw:
+    args_for_starmap = zip(itertools.repeat(f), itertools.repeat(args_iter), kwargs_iter)
+  else:
+    args_for_starmap = zip(itertools.repeat(f), args_iter, itertools.repeat(kwargs_iter))
+  return pool.map(apply_args, args_for_starmap)
 
-def apply_kwargs(f_kwargs):
-  f, kwargs = f_kwargs
-  return f(save_plot=True, **kwargs)
+def apply_args(f_args):
+  f, args, kwargs = f_args
+  return f(*args, **kwargs)
 
 def grid_search(**kwargs):
+  kwargs['save_plot'] = [True]
   arg_set = list(map(lambda args: dict(zip(kwargs.keys(), args)), itertools.product(*kwargs.values())))
   with Pool() as pool:
-    starmap_kwargs(pool, run, arg_set)
+    starmap_kwargs(pool, run, kwargs_iter=arg_set)
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  run(weights_dist='chebyshev', sgd_same_point=True, batch_size=1)
+  run(weights_dist='chebyshev', sgd_same_point=True, batch_size=1, num_runs=10)
 
   # grid_search(weights_dist=['chebyshev', 'first', 'rotational'],
   #             epochs=[100],

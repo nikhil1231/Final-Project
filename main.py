@@ -6,7 +6,7 @@ from concurrent.futures import ProcessPoolExecutor as Pool
 import tqdm
 
 PLOT_SURFACE = True
-PLOT_2D = True
+PLOT_2D = False
 PLOT_SGD = True
 PLOT_LOSSES = False
 PLOT_LR = False
@@ -498,12 +498,10 @@ def plot_scatter(scatters, training=False, filename=None):
 '''
   Plot chart of loss over epochs
 '''
-def plot_losses(losses, validation=None):
-  epoch_axis = np.arange(1, len(losses[0]) + 1)
-  for loss_plt, valid_plt in zip(losses, validation):
-    plt.plot(epoch_axis, loss_plt, label='Training loss')
-    plt.plot(epoch_axis, valid_plt, label='Validation loss')
-  plt.yscale('log')
+def plot_losses(losses, epochs, validation=None):
+  epoch_axis = np.linspace(0, epochs, num=len(losses[0]))
+  for i, (loss_plt, valid_plt) in enumerate(zip(losses, validation)):
+    plt.plot(epoch_axis, np.array(valid_plt)- np.array(loss_plt), label=f'Run {i}', color=COLORS[i])
   plt.xlabel('Epochs')
   plt.ylabel('Loss')
   plt.legend()
@@ -643,7 +641,7 @@ def run(weights_dist=WEIGHTS_DIST,
                                                                         force_map_sgd, scaled, resnet, verbose, parallel=parallel)
 
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, test_net, scaled, resnet, true_loss, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
-  if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
+  if PLOT_LOSSES: plot_losses(loss_runs, epochs, validation=valid_loss_runs)
   if PLOT_LR and not save_plot: plot_lrs(lrs, plot_log=False)
 
   if test_net:

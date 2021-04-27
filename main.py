@@ -5,6 +5,7 @@ import itertools, functools, operator
 from concurrent.futures import ProcessPoolExecutor as Pool
 import tqdm
 
+# Options to plot the following graphs
 PLOT_SURFACE = True
 PLOT_2D = False
 PLOT_SGD = True
@@ -12,6 +13,7 @@ PLOT_LOSSES = False
 PLOT_LR = False
 PLOT_SCATTER = False
 
+# Option to print finite difference
 CHECK_GRAD = False
 
 TEST_NET = False
@@ -31,17 +33,19 @@ LR_MIN = 0.001
 LR_MAX = 0.03
 EPOCHS = 15
 
+# Custom colours for plots, chosen dark colours.
 COLORS = ['r', 'b', 'g', 'darkviolet', 'brown', 'm'] * 5
 
 FOLDER = 'figs'
 
-# Parameter range, sample range, axis range
+# Default values for plotting. In the form: [Parameter range, sample range, axis range]
 dimension_defaults = {
   'first': [2, 2, 5],
   'rotational': [1, np.pi, 5],
   'chebyshev': [0.9, 0.9, 0.9],
 }
 
+# Default starting positions for certains SGD runs
 starting_positions = {
   'first': [-3, -3],
   'rotational': [-1, 3],
@@ -59,13 +63,14 @@ seeds = {
   'rotational': 1,
   'chebyshev': 6, #0, 3
 }
-
+# Default viewing angles for 3D plots, in the form: [Elevation, Azimuth]
 view_angle_defaults = {
   'first': [65, 60],
   'rotational': [75, 210],
   'chebyshev': [60, 30],
 }
 
+# Default random distribution type, either uniform or normal.
 RAND_DIST = 'uniform'
 
 parameter_positions = {
@@ -75,15 +80,15 @@ parameter_positions = {
 }
 
 '''
-Values in the weight distribution to be frozen during unbound SGD.
+Values in the parameter distribution to be frozen during unbound SGD.
 
 Structured to be visually intuitive, rather than the structure of the matrix.
 
 Number represents the number of free params.
 
-1 represents a randomised parameter, 0 is fixed.
+1 represents a free parameter, 0 is fixed.
 '''
-fixed_param_config = {
+unstructured_parameter_dist = {
   '8': [
     [[1, 1], [1, 1]],
     [[1, 1], [1, 1]],
@@ -104,6 +109,9 @@ fixed_param_config = {
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
+'''
+  Base class for the network. i and j correspond to α and β.
+'''
 class Net:
   def __init__(self, i, j, dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size):
     self.i = i
@@ -121,6 +129,7 @@ class Net:
     if test_net:
       self.randomise_free_vars()
 
+  # Forward pass thorugh the network
   def forward(self, x, grad=True):
     if grad:
       self.a1, self.a2, self.h2 = forward(x, self.w, self.scaled, self.resnet)
@@ -128,8 +137,9 @@ class Net:
     else:
       return forward(x, self.w, self.scaled, self.resnet)[-1]
 
+  # Back-propagation, calculate gradients and update parameters.
   def backward(self, x, y, lr):
-
+    # Stop back-prop if the parameters are out of bounds.
     if self.i < -self.axis_size or self.i > self.axis_size or self.j < -self.axis_size or self.j > self.axis_size:
       return
 
@@ -180,14 +190,16 @@ class Net:
     self.i -= di * lr
     self.j -= dj * lr
 
+    # Calculate the free parameters
     dw_free = [None] * 2
     dw_free[1] = dlh2 @ h1.T
     dw_free[0] = dz2h1.T @ dlh2 * da1z1 @ x.T
 
+    # Generate the structured parameters Θ
     new_w = self.form_weights(self.i, self.j, self.fixed)
 
     if self.test_net:
-      positions = get_fixed_param_config(self.dist, self.num_free_params)
+      positions = get_unstructured_parameter_dist(self.dist, self.num_free_params)
       for e in itertools.product(*([[0, 1]] * 3)):
         if positions[e[1]][e[0]][e[2]]:
           self.w[e[0]][e[1]][e[2]] -= lr * dw_free[e[0]][e[1]][e[2]]
@@ -202,12 +214,16 @@ class Net:
   def randomise_free_vars(self):
     if self.dist == 'rotational':
       return
-    positions = get_fixed_param_config(self.dist, self.num_free_params)
+    positions = get_unstructured_parameter_dist(self.dist, self.num_free_params)
     params_pos = parameter_positions[self.dist]
     for e in itertools.product(*([[0, 1]] * 3)):
       if positions[e[1]][e[0]][e[2]] and e not in params_pos:
         self.w[e[0]][e[1], e[2]] = get_rand(1, self.parameter_sd, 'uniform')
 
+  '''
+    Finite difference checking function. Will print the MSE between each intermediate gradient and
+    its analytical equivalent.
+  '''
   def check_grad(self, x, y, grads_i=None, grads_j=None, eps=1e-6):
     if not grads_i or not grads_j:
       raise Exception("Grads required")
@@ -237,6 +253,9 @@ class Net:
 
     return np.array([*vals, l])
 
+'''
+  First parameter distribution.
+'''
 class FirstNet(Net):
   def __init__(self, *args):
     super().__init__(*args)
@@ -258,6 +277,9 @@ class FirstNet(Net):
   def get_parameters(self):
     return self.w[0][0, 0], self.w[0][0, 1]
 
+'''
+  Rotational parameter distribution.
+'''
 class RotationalNet(Net):
   def __init__(self, *args):
     super().__init__(*args)
@@ -277,6 +299,9 @@ class RotationalNet(Net):
     l = lambda a: matrix([np.cos(a), -np.sin(a), np.sin(a), np.cos(a)])
     return l(i), l(j)
 
+'''
+  Chebyshev parameter distribution.
+'''
 class ChebyshevNet(Net):
   def __init__(self, *args):
     super().__init__(*args)
@@ -313,6 +338,9 @@ def apply_scaling(m, scaled, resnet):
 def deriv_scaling(scaled, resnet):
   return 1 if not scaled else 2/3 if resnet else 2
 
+'''
+  Generic forward pass function, returns all intermediate gradients.
+'''
 def _forward(x, w, scaled, resnet):
   zeros = np.zeros(np.shape(x))
   skip = x if resnet else zeros
@@ -337,15 +365,21 @@ def forward(*args):
 def loss(y_hat, Y):
   return 0.5 * sum(((y_hat - Y) ** 2).flatten()) / len(Y[0])
 
+'''
+  Apply cosine annealing.
+'''
 def anneal_lr(epoch, lr_min, lr_max, max_epochs):
   return lr_min + 0.5 * (lr_max - lr_min) * (1 + np.cos(np.pi * epoch / max_epochs))
 
+'''
+  Perform SGD training.
+'''
 def train(epochs, m, X, Y, valid_X, valid_Y, fixed, dist,
           lr_min, lr_max,
           num_samples, batch_size,
           test_net, force_map_sgd,
           scaled, resnet):
-  sgd_path = []
+  sgd_path = [] # paths stored for plotting
   losses = []
   valid_losses = []
   lrs = []
@@ -386,12 +420,15 @@ def calc_loss(i, j, fixed, X, Y, Net, *args):
   y_hat = forward(X, Net.form_weights(i, j, fixed), *args)[-1]
   return loss(y_hat, Y)
 
+'''
+  Iterate through parameters to generate values for the loss surface.
+'''
 def create_landscape(axis, *args):
   return np.array([[calc_loss(i, j, *args) for i in axis] for j in axis])
 
-def get_fixed_param_config(dist, n):
+def get_unstructured_parameter_dist(dist, n):
   d = '8' if n == 8 else dist + str(n)
-  return fixed_param_config[d]
+  return unstructured_parameter_dist[d]
 
 def get_file_path(weights_dist, epochs, test_net, num_free_params, num_samples, batch_size, parameter_sd, sample_sd,
                   axis_size, test_sd, scaled, resnet, lr_min, lr_max,
@@ -451,6 +488,8 @@ def plot(i, j, fixed, X, Y, dist, Net, test_net, scaled, resnet, true_loss, axis
 
     x_label = 'α'
     y_label = 'β'
+
+    # Rotate all elements of the 2D plot in line with the 3D one.
     rots = round(azimuth/90) + 1
     for _ in range(rots):
       landscape = np.rot90(landscape)
@@ -507,6 +546,9 @@ def plot_losses(losses, epochs, validation=None):
   plt.legend()
   plt.show()
 
+'''
+  Plot chart of learning rate over epochs
+'''
 def plot_lrs(lrs, plot_log=True):
   epoch_axis = np.arange(1, len(lrs) + 1)
   plt.plot(epoch_axis, lrs)
@@ -517,10 +559,13 @@ def plot_lrs(lrs, plot_log=True):
   plt.ylabel('Learning rate (ηt)')
   plt.show()
 
+'''
+  Printer function to generate latex
+'''
 def print_weights(ws, dist, nfp, true=False):
   col = lambda x, c: f"\\textcolor{{{c}}}{{{x}}}"
   params_pos = parameter_positions[dist]
-  free_params = get_fixed_param_config(dist, nfp)
+  free_params = get_unstructured_parameter_dist(dist, nfp)
 
   def f(i, j, k):
     x = round(ws[i][j, k], 3)
@@ -555,6 +600,9 @@ nets = {
   'rotational': RotationalNet,
 }
 
+'''
+  Generic function for multiple SGD runs with a single set of hyperparameters.
+'''
 def run(weights_dist=WEIGHTS_DIST,
         epochs=EPOCHS,
         test_net=TEST_NET,
@@ -649,6 +697,9 @@ def run(weights_dist=WEIGHTS_DIST,
       # Use valid parameters to generate valid labels
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
 
+'''
+  Parallelise multiple SGD runs on the same surface.
+'''
 def run_sgd_multi(path_inits, *args, parallel=False):
   if parallel:
     arg_set = [[i, p] + list(args) for i, p in enumerate(path_inits)]
@@ -683,6 +734,7 @@ def run_sgd(i, path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_di
   scatter = model.forward(X, grad=False)
   return path, loss_run, valid_loss_run, lrs, scatter
 
+# Helper function for parallelisation.
 def starmap_kwargs(pool, f, args_iter=[], kwargs_iter={}, kw=True):
   if kw:
     args_for_starmap = zip(itertools.repeat(f), itertools.repeat(args_iter), kwargs_iter)
@@ -694,6 +746,9 @@ def apply_args(f_args):
   f, args, kwargs = f_args
   return f(*args, **kwargs)
 
+'''
+  Parallelised grid search
+'''
 def grid_search(save_plot=[True], **kwargs):
   kwargs['save_plot'] = save_plot
   arg_set = list(map(lambda args: dict(zip(kwargs.keys(), args)), itertools.product(*kwargs.values())))

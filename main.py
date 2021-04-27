@@ -384,7 +384,7 @@ def calc_loss(i, j, fixed, X, Y, Net, *args):
   return loss(y_hat, Y)
 
 def create_landscape(axis, *args):
-  return [[calc_loss(i, j, *args) for i in axis] for j in axis]
+  return np.array([[calc_loss(i, j, *args) for i in axis] for j in axis])
 
 def get_fixed_param_config(dist, n):
   d = '8' if n == 8 else dist + str(n)
@@ -401,18 +401,18 @@ _LR{lr_min}-{lr_max}_NSD{noise_sd}_RD{rand_dist}_SGD{PLOT_SGD}"
 '''
   Plot 3D contours of the loss landscape
 '''
-def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, true_loss, axis_size, save, filepath, paths=None, plot_2d=False):
+def plot(i, j, fixed, X, Y, dist, Net, test_net, scaled, resnet, true_loss, axis_size, save, filepath, paths=None, plot_2d=False):
   fig = plt.figure()
   ax = fig.gca(projection='3d')
 
   ax_max = axis_size
   ax_min = -axis_size
 
-  if paths:
-    ax_max = max(ax_max, max(max((x, y) for path in paths for (x, y, _) in path)))
-    ax_min = min(ax_min, min(min((x, y) for path in paths for (x, y, _) in path)))
+  # if paths:
+  #   ax_max = max(ax_max, max(max((x, y) for path in paths for (x, y, _) in path)))
+  #   ax_min = min(ax_min, min(min((x, y) for path in paths for (x, y, _) in path)))
 
-  axis = np.arange(ax_min, ax_max, axis_size/10)
+  axis = np.linspace(ax_min, ax_max, 50)
   landscape = create_landscape(axis, fixed, X, Y, Net, scaled, resnet)
   Z = np.array(landscape)
   axis_x, axis_y = np.meshgrid(axis, axis)
@@ -431,7 +431,7 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, true_loss, axis_size, sav
   plt.ylabel('β')
   ax.set_zlabel('Loss')
 
-  elevation = view_angle_defaults[dist][0]
+  elevation = 20 if test_net else view_angle_defaults[dist][0]
   azimuth = view_angle_defaults[dist][1]
 
   ax.view_init(elev=elevation, azim=azimuth)
@@ -443,7 +443,30 @@ def plot(i, j, fixed, X, Y, dist, Net, scaled, resnet, true_loss, axis_size, sav
 
   if plot_2d:
     plt.clf()
-    plt.contour(axis, axis, landscape, levels=20, cmap=cm.terrain)
+    axis_x = axis_y = axis
+    flip_x = flip_y = False
+
+    x_label = 'α'
+    y_label = 'β'
+    rots = round(azimuth/90) + 1
+    for _ in range(rots):
+      landscape = np.rot90(landscape)
+      i, j = j, -i
+      axis_x, axis_y = axis_y, -axis_x
+      flip_x, flip_y = flip_y, not flip_x
+      x_label, y_label = y_label, x_label
+      if paths:
+        paths = list(map(lambda p: list(map(lambda x: [x[1], x[0], x[2]], p)), paths))
+    plt.contour(axis_x, axis_y, landscape, levels=20, cmap=cm.terrain)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    ax = plt.gca()
+    if flip_x:
+      ax.set_xlim(ax.get_xlim()[::-1])
+      i = -i
+    if flip_y:
+      ax.set_ylim(ax.get_ylim()[::-1])
+      j = -j
     plt.scatter(i, j, marker='x', s=150, color='black')
     if paths:
       for i, path in enumerate(paths):
@@ -609,7 +632,7 @@ def run(weights_dist=WEIGHTS_DIST,
                                                                         parameter_sd, axis_size,
                                                                         force_map_sgd, scaled, resnet, verbose)
 
-  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, scaled, resnet, true_loss, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
+  if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, test_net, scaled, resnet, true_loss, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
   if PLOT_LR and not save_plot: plot_lrs(lrs, plot_log=False)
 
@@ -667,11 +690,11 @@ def grid_search(**kwargs):
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  # run(weights_dist='chebyshev', noise_sd=0.2, num_runs=5, test_net=True, num_free_params=2)
+  run(weights_dist='chebyshev', noise_sd=0.2, num_runs=5, test_net=True, num_free_params=2)
 
-  grid_search(weights_dist=['chebyshev'],
-              lr_max=[0.1],
-              # noise_sd=[0.2],
-              test_net=[True],
-              num_free_params=[2, 6],
-              subfolder=['unstructured'])
+  # grid_search(weights_dist=['first'],
+  #             lr_max=[0.1],
+  #             # noise_sd=[0.2],
+  #             test_net=[True],
+  #             num_free_params=[3, 8],
+  #             subfolder=['unstructured'])

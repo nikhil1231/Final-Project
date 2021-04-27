@@ -31,7 +31,7 @@ LR_MIN = 0.001
 LR_MAX = 0.03
 EPOCHS = 15
 
-COLORS = ['r', 'b', 'g', 'brown', 'm', 'darkviolet'] * 5
+COLORS = ['r', 'b', 'g', 'darkviolet', 'brown', 'm'] * 5
 
 FOLDER = 'figs'
 
@@ -254,6 +254,9 @@ class FirstNet(Net):
   @staticmethod
   def form_weights(i, j, fixed):
     return matrix([i, j, j, fixed[0]]), matrix(fixed[1:5])
+
+  def get_parameters(self):
+    return self.w[0][0, 0], self.w[0][0, 1]
 
 class RotationalNet(Net):
   def __init__(self, *args):
@@ -480,13 +483,13 @@ def plot(i, j, fixed, X, Y, dist, Net, test_net, scaled, resnet, true_loss, axis
     else:
       plt.show()
 
-def plot_scatter(scatters, y=False, filename=None):
+def plot_scatter(scatters, training=False, filename=None):
   plt.clf()
-  if y:
+  if training:
     for i, scatter in enumerate(scatters):
-      plt.scatter(*zip(scatter), color=COLORS[i], s=2)
+      plt.scatter(*zip(scatter), color=COLORS[i], s=1)
   else:
-    plt.scatter(*zip(scatters), color='b')
+    plt.scatter(*zip(scatters), color='dimgrey', s=1)
   if filename:
     plt.savefig(filename)
   else:
@@ -528,7 +531,7 @@ def print_weights(ws, dist, nfp, true=False):
       return col(x, 'orange')
     elif (i, j, k) == params_pos[1]:
       return col(x, 'magenta')
-    elif free_params[j][i][k] and not True:
+    elif free_params[j][i][k] and not true:
       return col(x, 'cyan')
     return x
 
@@ -561,6 +564,7 @@ def run(weights_dist=WEIGHTS_DIST,
         num_samples=NUM_SAMPLES,
         batch_size=BATCH_SIZE,
         num_runs=NUM_RUNS,
+        runs_per_start_pos=1,
         parameter_sd=None,
         sample_sd=None,
         axis_size=None,
@@ -607,11 +611,15 @@ def run(weights_dist=WEIGHTS_DIST,
   X = get_rand((2, num_samples), sample_sd, rand_dist)
   Y = forward(X, true_params, scaled, resnet)[-1]
 
-  path_inits = [starting_positions[weights_dist]] * num_runs if sgd_same_point else get_rand((num_runs, 2), axis_size * 0.9, 'uniform')
+  if sgd_same_point:
+    path_inits = [starting_positions[weights_dist]] * num_runs
+  else:
+    path_inits = get_rand((num_runs, 2), axis_size * 0.9, 'uniform')
+    path_inits = np.repeat(path_inits, runs_per_start_pos, 0)
 
   if PLOT_SCATTER:
     plot_scatter(X, filename=f"{fn}_SCAT-X.png")
-    plot_scatter([Y], True, f"{fn}_SCAT-Y.png")
+    plot_scatter(Y, filename=f"{fn}_SCAT-Y.png")
 
   Y_noise = noise(Y, noise_sd)
   true_loss = loss(Y, Y_noise)
@@ -620,7 +628,8 @@ def run(weights_dist=WEIGHTS_DIST,
   if verbose:
     print("True params")
     print_weights(true_params, weights_dist, num_free_params, true=True)
-    print("Eigenvalues", np.linalg.eigvals(true_params[1]))
+    print("Eigenvalues W1", np.linalg.eigvals(true_params[0]))
+    print("Eigenvalues W2", np.linalg.eigvals(true_params[1]))
 
   valid_X = get_rand((2, num_samples), sample_sd, rand_dist)
   valid_Y = forward(valid_X, true_params, scaled, resnet)[-1]
@@ -664,9 +673,11 @@ def run_sgd(i, path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_di
                                           scaled, resnet)
 
   if verbose:
-    print(f"\nRun {i+1}")
+    print(f"\n {weights_dist}-{num_free_params} - Run {i+1}")
     print("Params", model.get_parameters())
     print_weights(model.w, weights_dist, num_free_params)
+    eigens = np.linalg.eigvals(model.w[0])
+    print(f"\\quad \lambda_1 = {round(eigens[0], 3)}\n\\quad \lambda_2 = {round(eigens[1], 3)}")
 
     if test_net:
       print("Training loss, validation loss", (loss_run[-1], valid_loss_run[-1]))
@@ -685,15 +696,15 @@ def apply_args(f_args):
   f, args, kwargs = f_args
   return f(*args, **kwargs)
 
-def grid_search(**kwargs):
-  kwargs['save_plot'] = [True]
+def grid_search(save_plot=[True], **kwargs):
+  kwargs['save_plot'] = save_plot
   arg_set = list(map(lambda args: dict(zip(kwargs.keys(), args)), itertools.product(*kwargs.values())))
   with Pool() as pool:
     starmap_kwargs(pool, run, kwargs_iter=arg_set)
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  # run(weights_dist='chebyshev', noise_sd=0.2, num_runs=5, test_net=True, num_free_params=2)
+  # run(weights_dist='first', num_runs=1, test_net=True, num_free_params=3, verbose=True)
 
   grid_search(weights_dist=['first'],
               # lr_max=[0.1],
@@ -701,4 +712,9 @@ if __name__ == '__main__':
               epochs=[30],
               test_net=[True],
               num_free_params=[3, 8],
-              subfolder=['testnet'])
+              runs_per_start_pos=[2],
+              num_runs=[2],
+              # save_plot=[False],
+              subfolder=['scatter'],
+              # verbose=[True]
+              )

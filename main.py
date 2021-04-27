@@ -460,6 +460,12 @@ def plot(i, j, fixed, X, Y, dist, Net, test_net, scaled, resnet, true_loss, axis
     plt.contour(axis_x, axis_y, landscape, levels=20, cmap=cm.terrain)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
+    if paths:
+      for k, path in enumerate(paths):
+        params = list(zip(*path))
+        xs, ys = params[0], params[1]
+        plt.plot(xs, ys, color=COLORS[k])
+        plt.scatter(xs[-1], ys[-1], color=COLORS[k], marker='o')
     ax = plt.gca()
     if flip_x:
       ax.set_xlim(ax.get_xlim()[::-1])
@@ -468,12 +474,6 @@ def plot(i, j, fixed, X, Y, dist, Net, test_net, scaled, resnet, true_loss, axis
       ax.set_ylim(ax.get_ylim()[::-1])
       j = -j
     plt.scatter(i, j, marker='x', s=150, color='black')
-    if paths:
-      for i, path in enumerate(paths):
-        params = list(zip(*path))
-        xs, ys = params[0], params[1]
-        plt.plot(xs, ys, color=COLORS[i])
-        plt.scatter(xs[-1], ys[-1], color=COLORS[i], marker='o')
 
     if save:
       plt.savefig(f"{filepath}_2D.png")
@@ -575,6 +575,7 @@ def run(weights_dist=WEIGHTS_DIST,
         sgd_same_point=False,
         save_plot=False,
         subfolder=None,
+        parallel=False,
         verbose=False):
 
   if parameter_sd is None:
@@ -630,7 +631,7 @@ def run(weights_dist=WEIGHTS_DIST,
                                                                         fixed, weights_dist, test_net, num_free_params,
                                                                         lr_min, lr_max, num_samples, batch_size,
                                                                         parameter_sd, axis_size,
-                                                                        force_map_sgd, scaled, resnet, verbose)
+                                                                        force_map_sgd, scaled, resnet, verbose, parallel=parallel)
 
   if PLOT_SURFACE: plot(*parameters, fixed, X, Y, weights_dist, Net, test_net, scaled, resnet, true_loss, axis_size, save_plot, fn, sgd_paths if PLOT_SGD else None, PLOT_2D)
   if PLOT_LOSSES: plot_losses(losses, validation=valid_loss_runs)
@@ -641,10 +642,13 @@ def run(weights_dist=WEIGHTS_DIST,
       # Use valid parameters to generate valid labels
       plot_scatter(scatters, True, f"{fn}_SCAT-Y_.png")
 
-def run_sgd_multi(path_inits, *args):
-  arg_set = [[i, p] + list(args) for i, p in enumerate(path_inits)]
-  with Pool() as pool:
-    runs = list(starmap_kwargs(pool, run_sgd, args_iter=arg_set, kw=False))
+def run_sgd_multi(path_inits, *args, parallel=False):
+  if parallel:
+    arg_set = [[i, p] + list(args) for i, p in enumerate(path_inits)]
+    with Pool() as pool:
+      runs = list(starmap_kwargs(pool, run_sgd, args_iter=arg_set, kw=False))
+  else:
+    runs = [run_sgd(i, path_init, *args) for i, path_init in enumerate(path_inits)]
   return zip(*runs)
 
 def run_sgd(i, path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_dist, test_net, num_free_params,
@@ -652,7 +656,6 @@ def run_sgd(i, path_init, Net, epochs, X, Y, valid_X, valid_Y, fixed, weights_di
             num_samples, batch_size,
             parameter_sd, axis_size,
             force_map_sgd, scaled, resnet, verbose):
-
   model = Net(*path_init, weights_dist, fixed, test_net, num_free_params, scaled, resnet, parameter_sd, axis_size)
   path, loss_run, valid_loss_run, lrs = train(epochs, model, X, Y, valid_X, valid_Y, fixed, weights_dist,
                                           lr_min, lr_max,
@@ -690,11 +693,12 @@ def grid_search(**kwargs):
 
 if __name__ == '__main__':
   # first, rotational, chebyshev
-  run(weights_dist='chebyshev', noise_sd=0.2, num_runs=5, test_net=True, num_free_params=2)
+  # run(weights_dist='chebyshev', noise_sd=0.2, num_runs=5, test_net=True, num_free_params=2)
 
-  # grid_search(weights_dist=['first'],
-  #             lr_max=[0.1],
-  #             # noise_sd=[0.2],
-  #             test_net=[True],
-  #             num_free_params=[3, 8],
-  #             subfolder=['unstructured'])
+  grid_search(weights_dist=['first'],
+              # lr_max=[0.1],
+              # noise_sd=[0.2],
+              epochs=[30],
+              test_net=[True],
+              num_free_params=[3, 8],
+              subfolder=['testnet'])

@@ -41,32 +41,52 @@ FOLDER = 'figs'
 # Default values for plotting. In the form: [Parameter range, sample range, axis range]
 dimension_defaults = {
   'first': [2, 2, 5],
+  'second': [2, 2, 5],
+  'equal': [1, 1, 1],
+  'skew': [1, 1, 1],
   'rotational': [1, np.pi, 5],
+  'monomial': [0.9, 0.9, 0.9],
   'chebyshev': [0.9, 0.9, 0.9],
 }
 
 # Default starting positions for certains SGD runs
 starting_positions = {
   'first': [-3, -3],
+  'second': [-3, -3],
+  'equal': [0.5, 0.5],
+  'skew': [0.5, 0.5],
   'rotational': [-1, 3],
+  'monomial': [-0.5, -0.6],
   'chebyshev': [-0.5, -0.6],
 }
 
 scaled_defaults = {
   'first': False,
+  'second': False,
+  'equal': True,
+  'skew': True,
   'rotational': False,
+  'monomial': True,
   'chebyshev': True,
 }
 
 seeds = {
   'first': 1,
+  'second': 1,
+  'equal': 1,
+  'skew': 1,
   'rotational': 1,
+  'monomial': 1,
   'chebyshev': 6, #0, 3
 }
 # Default viewing angles for 3D plots, in the form: [Elevation, Azimuth]
 view_angle_defaults = {
   'first': [65, 60],
+  'second': [65, 60],
+  'equal': [65, 60],
+  'skew': [65, 60],
   'rotational': [75, 210],
+  'monomial': [60, 30],
   'chebyshev': [60, 30],
 }
 
@@ -75,7 +95,11 @@ RAND_DIST = 'uniform'
 
 parameter_positions = {
   'first': [(0, 0, 0), (0, 0, 1)],
+  'second': [(1, 0, 0), (1, 0, 1)],
+  'equal': [(0, 0, 1), (1, 0, 1)],
+  'skew': [(0, 0, 1), (1, 0, 1)],
   'rotational': [],
+  'monomial': [(0, 0, 1), (1, 0, 1)],
   'chebyshev': [(0, 0, 1), (1, 0, 1)],
 }
 
@@ -278,6 +302,78 @@ class FirstNet(Net):
     return self.w[0][0, 0], self.w[0][0, 1]
 
 '''
+  Second parameter distribution.
+'''
+class SecondNet(Net):
+  def __init__(self, *args):
+    super().__init__(*args)
+    self.derivs = {
+      'w1': {
+        'i': lambda a: np.zeros((2, 2)),
+        'j': lambda a: np.zeros((2, 2))
+      },
+      'w2': {
+        'i': lambda a: matrix([1, 0, 0, 0]),
+        'j': lambda a: matrix([0, 1, 1, 0]),
+      }
+    }
+
+  @staticmethod
+  def form_weights(i, j, fixed):
+    return matrix(fixed[:4]), matrix([i, j, j, fixed[4]]),
+
+  def get_parameters(self):
+    return self.w[1][0, 0], self.w[1][0, 1]
+
+'''
+  Equal parameter distribution.
+'''
+class EqualNet(Net):
+  def __init__(self, *args):
+    super().__init__(*args)
+    self.derivs = {
+      'w1': {
+        'i': lambda a: matrix([0, 1, 1, 0]),
+        'j': lambda a: np.zeros((2, 2))
+      },
+      'w2': {
+        'i': lambda a: np.zeros((2, 2)),
+        'j': lambda a: matrix([0, 1, 1, 0]),
+      }
+    }
+
+  @staticmethod
+  def form_weights(i, j, fixed):
+    return matrix([fixed[0], i, i, fixed[1]]), matrix([fixed[2], j, j, fixed[3]]),
+
+  def get_parameters(self):
+    return self.w[0][0, 1], self.w[1][0, 1]
+
+'''
+  Skew parameter distribution.
+'''
+class SkewNet(Net):
+  def __init__(self, *args):
+    super().__init__(*args)
+    self.derivs = {
+      'w1': {
+        'i': lambda a: matrix([0, 1, -1, 0]),
+        'j': lambda a: np.zeros((2, 2))
+      },
+      'w2': {
+        'i': lambda a: np.zeros((2, 2)),
+        'j': lambda a: matrix([0, 1, -1, 0]),
+      }
+    }
+
+  @staticmethod
+  def form_weights(i, j, fixed):
+    return matrix([0, i, -i, 0]), matrix([0, j, -j, 0]),
+
+  def get_parameters(self):
+    return self.w[0][0, 1], self.w[1][0, 1]
+
+'''
   Rotational parameter distribution.
 '''
 class RotationalNet(Net):
@@ -298,6 +394,32 @@ class RotationalNet(Net):
   def form_weights(i, j, fixed):
     l = lambda a: matrix([np.cos(a), -np.sin(a), np.sin(a), np.cos(a)])
     return l(i), l(j)
+
+'''
+  Monomial parameter distribution.
+'''
+class MonomialNet(Net):
+  def __init__(self, *args):
+    super().__init__(*args)
+
+    self.derivs = {
+      'w1': {
+        'i': lambda a: matrix([0, 1, a, a**2]),
+        'j': lambda a: np.zeros((2, 2)),
+      },
+      'w2': {
+        'i': lambda a: np.zeros((2, 2)),
+        'j': lambda a: matrix([0, 1, a, a**2])
+      }
+    }
+
+  @staticmethod
+  def form_weights(i, j, fixed):
+    l = lambda a: matrix([1, a, a**2, a**3])
+    return l(i), l(j)
+
+  def get_parameters(self):
+    return self.w[0][0, 1], self.w[1][0, 1]
 
 '''
   Chebyshev parameter distribution.
@@ -596,8 +718,12 @@ def noise(Y, noise_sd):
 
 nets = {
   'first': FirstNet,
-  'chebyshev': ChebyshevNet,
+  'second': SecondNet,
+  'equal': EqualNet,
+  'skew': SkewNet,
   'rotational': RotationalNet,
+  'monomial': MonomialNet,
+  'chebyshev': ChebyshevNet,
 }
 
 '''
@@ -759,15 +885,6 @@ if __name__ == '__main__':
   # first, rotational, chebyshev
   # run(weights_dist='first', num_runs=1, test_net=True, num_free_params=3, verbose=True)
 
-  grid_search(weights_dist=['first'],
-              # lr_max=[0.1],
-              # noise_sd=[0.2],
-              epochs=[30],
-              test_net=[True],
-              num_free_params=[3, 8],
-              runs_per_start_pos=[2],
-              num_runs=[2],
-              # save_plot=[False],
-              subfolder=['scatter'],
-              # verbose=[True]
+  grid_search(weights_dist=['first', 'second', 'equal', 'skew', 'rotational', 'monomial', 'chebyshev'],
+              subfolder=['tmp']
               )
